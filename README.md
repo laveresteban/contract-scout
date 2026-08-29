@@ -111,6 +111,36 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
+---
+
+## Docker setup
+
+If you prefer containers, the project is split into a backend container (FastAPI + Playwright) and a frontend container (Nginx serving the built React app).
+
+### 1. Build and run
+
+```bash
+docker-compose up --build
+```
+
+This starts:
+- Backend on [http://localhost:8000](http://localhost:8000)
+- Frontend on [http://localhost](http://localhost)
+
+The frontend Nginx config proxies `/api/*` calls to the backend service.
+
+### 2. Persistent data
+
+The SQLite database is stored in `backend/data/jobs.db` and mounted into the backend container, so data survives container restarts.
+
+### 3. Stop
+
+```bash
+docker-compose down
+```
+
+---
+
 ### 4. First search
 
 Type a keyword in the search box and click **Search**. The backend will scrape major and remote-first boards, save results to SQLite, and return the matching remote US contract jobs.

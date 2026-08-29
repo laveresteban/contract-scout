@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: contract-scout-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///app/data/jobs.db
+      - CORS_ORIGINS=http://localhost,http://localhost:5173,http://localhost:80
+      - SCRAPER_HOURS_OLD=168
+      - RESULTS_PER_BOARD=25
+    volumes:
+      - ./backend/data:/app/data
+    networks:
+      - contract-scout
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: contract-scout-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - contract-scout
+
+networks:
+  contract-scout:
+    driver: bridge
