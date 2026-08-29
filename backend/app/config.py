@@ -13,4 +13,7 @@ MAX_RESULTS_PER_BOARD = int(os.getenv("MAX_RESULTS_PER_BOARD", "100"))
 SCRAPER_HOURS_OLD = int(os.getenv("SCRAPER_HOURS_OLD", "168"))  # 7 days
 
 # CORS origins for local dev
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+CORS_ORIGINS = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:5174",
+).split(",")
