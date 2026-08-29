@@ -64,7 +64,17 @@ contract-scout/
 
 ## Setup
 
-### 1. Clone the repo
+### 1. Clone or create the repo
+
+If you are creating the repo from this local copy:
+
+```bash
+git remote add origin https://github.com/YOUR_USERNAME/contract-scout.git
+git branch -M main
+git push -u origin main
+```
+
+Or clone the published repo:
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/contract-scout.git
