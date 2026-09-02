@@ -118,6 +118,10 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
     setSavedName('')
   }
 
+  const handleClearFilter = (overrides) => {
+    onSearch({ ...buildParams(), ...overrides })
+  }
+
   const handleSavedClick = (entry) => {
     applyState(entry.params)
     onSearch(entry.params)
@@ -126,6 +130,25 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
   const handleDeleteSaved = (id) => {
     setSavedSearches((prev) => removeSavedSearch(prev, id))
   }
+
+  const sortValue = `${sortBy}:${sortOrder}`
+  const sortLabel = SORT_OPTIONS.find((option) => option.value === sortValue)?.label || sortValue
+
+  const activeFilters = [
+    query !== DEFAULTS.query && { key: 'query', label: query, clear: { query: DEFAULTS.query } },
+    location !== DEFAULTS.location && { key: 'location', label: location, clear: { location: DEFAULTS.location } },
+    jobType !== DEFAULTS.jobType && { key: 'job_type', label: jobType, clear: { job_type: DEFAULTS.jobType } },
+    employmentType && { key: 'employment_type', label: employmentType.toUpperCase(), clear: { employment_type: undefined } },
+    minPay && { key: 'min_pay', label: `min $${minPay}`, clear: { min_pay: undefined } },
+    maxPay && { key: 'max_pay', label: `max $${maxPay}`, clear: { max_pay: undefined } },
+    payInterval && { key: 'pay_interval', label: payInterval, clear: { pay_interval: undefined } },
+    source && { key: 'source', label: source, clear: { source: undefined } },
+    (sortBy !== DEFAULTS.sortBy || sortOrder !== DEFAULTS.sortOrder) && {
+      key: 'sort',
+      label: `sort: ${sortLabel}`,
+      clear: { sort_by: DEFAULTS.sortBy, sort_order: DEFAULTS.sortOrder },
+    },
+  ].filter(Boolean)
 
   return (
     <form className="search-form" onSubmit={handleSubmit}>
@@ -243,6 +266,24 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
           Save search
         </button>
       </div>
+      {activeFilters.length > 0 && (
+        <div className="active-filters">
+          <span className="active-filters__label">Active filters</span>
+          {activeFilters.map((filter) => (
+            <span key={filter.key} className="active-filter-chip">
+              {filter.label}
+              <button
+                type="button"
+                className="active-filter-chip__remove"
+                onClick={() => handleClearFilter(filter.clear)}
+                aria-label={`Remove ${filter.label}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       {recentSearches.length > 0 && (
         <div className="recent-searches">
           <span className="recent-label">Recent searches</span>

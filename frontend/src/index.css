@@ -228,6 +228,47 @@ header p {
   background: #c5cae9;
 }
 
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.active-filters__label {
+  font-size: 0.85rem;
+  color: #455a64;
+  margin-right: 0.25rem;
+}
+
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.6rem;
+  background: #f5f5f5;
+  color: #1a237e;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.active-filter-chip__remove {
+  padding: 0 0.2rem;
+  background: transparent;
+  color: #455a64;
+  font-size: 1rem;
+  line-height: 1;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.active-filter-chip__remove:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
 button {
   padding: 0.6rem 1.2rem;
   border: none;
@@ -779,6 +820,20 @@ html[data-theme="dark"] .saved-chip__delete {
 
 html[data-theme="dark"] .saved-chip__delete:hover:not(:disabled) {
   background: #283593;
+}
+
+html[data-theme="dark"] .active-filter-chip {
+  background: #2c2c2c;
+  color: #c5cae9;
+  border-color: #424242;
+}
+
+html[data-theme="dark"] .active-filter-chip__remove {
+  color: #c5cae9;
+}
+
+html[data-theme="dark"] .active-filter-chip__remove:hover:not(:disabled) {
+  background: #424242;
 }
 
 html[data-theme="dark"] .skeleton {

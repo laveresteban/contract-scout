@@ -16,6 +16,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Dark mode + responsive tweaks** — Theme toggle persists in localStorage; dark mode overrides core colors and the mobile layout wraps better.
 - **Sort control** — `SearchFilters` lets users sort by date posted, min/max pay, and relevance; `App` passes `sort_by`/`sort_order` to the backend and persists them in the URL.
 - **Saved searches (localStorage)** — `SearchFilters` lets users name, save, delete, and re-run filter combinations; saved searches are persisted in `localStorage`.
+- **Active filter chips** — `SearchFilters` displays a row of removable chips for each applied filter; clicking a chip clears that filter and re-runs the search.
 
 ## Current state snapshot
 
