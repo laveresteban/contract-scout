@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { DEFAULT_FILTER_VALUES } from '../utils/filters'
 
 const DEFAULTS = {
   query: 'software engineer',
@@ -11,7 +12,20 @@ const DEFAULTS = {
   source: '',
 }
 
-function SearchFilters({ onSearch, loading, sources = [] }) {
+function paramsToState(params) {
+  return {
+    query: params.query ?? DEFAULTS.query,
+    location: params.location ?? DEFAULTS.location,
+    jobType: params.job_type ?? DEFAULTS.jobType,
+    employmentType: params.employment_type ?? DEFAULTS.employmentType,
+    minPay: params.min_pay ?? DEFAULTS.minPay,
+    maxPay: params.max_pay ?? DEFAULTS.maxPay,
+    payInterval: params.pay_interval ?? DEFAULTS.payInterval,
+    source: params.source ?? DEFAULTS.source,
+  }
+}
+
+function SearchFilters({ onSearch, loading, sources = [], initialParams, recentSearches = [] }) {
   const [query, setQuery] = useState(DEFAULTS.query)
   const [location, setLocation] = useState(DEFAULTS.location)
   const [jobType, setJobType] = useState(DEFAULTS.jobType)
@@ -20,6 +34,18 @@ function SearchFilters({ onSearch, loading, sources = [] }) {
   const [maxPay, setMaxPay] = useState(DEFAULTS.maxPay)
   const [payInterval, setPayInterval] = useState(DEFAULTS.payInterval)
   const [source, setSource] = useState(DEFAULTS.source)
+
+  useEffect(() => {
+    const next = paramsToState(initialParams ?? DEFAULT_FILTER_VALUES)
+    setQuery(next.query)
+    setLocation(next.location)
+    setJobType(next.jobType)
+    setEmploymentType(next.employmentType)
+    setMinPay(next.minPay)
+    setMaxPay(next.maxPay)
+    setPayInterval(next.payInterval)
+    setSource(next.source)
+  }, [initialParams])
 
   const buildParams = () => ({
     query,
@@ -33,31 +59,41 @@ function SearchFilters({ onSearch, loading, sources = [] }) {
     source: source || undefined,
   })
 
+  const applyState = (params) => {
+    const next = paramsToState(params)
+    setQuery(next.query)
+    setLocation(next.location)
+    setJobType(next.jobType)
+    setEmploymentType(next.employmentType)
+    setMinPay(next.minPay)
+    setMaxPay(next.maxPay)
+    setPayInterval(next.payInterval)
+    setSource(next.source)
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
     onSearch(buildParams())
   }
 
   const handleReset = () => {
-    setQuery(DEFAULTS.query)
-    setLocation(DEFAULTS.location)
-    setJobType(DEFAULTS.jobType)
-    setEmploymentType(DEFAULTS.employmentType)
-    setMinPay(DEFAULTS.minPay)
-    setMaxPay(DEFAULTS.maxPay)
-    setPayInterval(DEFAULTS.payInterval)
-    setSource(DEFAULTS.source)
+    applyState(DEFAULT_FILTER_VALUES)
     onSearch({
-      query: DEFAULTS.query,
-      location: DEFAULTS.location,
+      query: DEFAULT_FILTER_VALUES.query,
+      location: DEFAULT_FILTER_VALUES.location,
       is_remote: true,
-      job_type: DEFAULTS.jobType,
+      job_type: DEFAULT_FILTER_VALUES.job_type,
       employment_type: undefined,
       min_pay: undefined,
       max_pay: undefined,
       pay_interval: undefined,
       source: undefined,
     })
+  }
+
+  const handleRecentClick = (entry) => {
+    applyState(entry.params)
+    onSearch(entry.params)
   }
 
   return (
@@ -147,6 +183,22 @@ function SearchFilters({ onSearch, loading, sources = [] }) {
           Reset
         </button>
       </div>
+      {recentSearches.length > 0 && (
+        <div className="recent-searches">
+          <span className="recent-label">Recent searches</span>
+          {recentSearches.map((entry, index) => (
+            <button
+              key={`${entry.label}-${index}`}
+              type="button"
+              className="recent-chip"
+              onClick={() => handleRecentClick(entry)}
+              disabled={loading}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
     </form>
   )
 }

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "exec",
+      "Write(**)"
+    ],
+    "deny": [
+      "Exec(rm)",
+      "Exec(sudo)",
+      "Exec(del)",
+      "Exec(rd)",
+      "Exec(rmdir)",
+      "Exec(Remove-Item)",
+      "Exec(git push --force)",
+      "Exec(git reset --hard)",
+      "Write(**/.env*)",
+      "Write(backend/data/jobs.db)"
+    ]
+  }
+}

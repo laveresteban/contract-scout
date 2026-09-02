@@ -90,6 +90,39 @@ header p {
   align-items: center;
 }
 
+.recent-searches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.recent-label {
+  font-size: 0.85rem;
+  color: #455a64;
+  margin-right: 0.25rem;
+}
+
+.recent-chip {
+  padding: 0.35rem 0.75rem;
+  background: #f5f5f5;
+  color: #1a237e;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.recent-chip:hover:not(:disabled) {
+  background: #e8eaf6;
+}
+
+.recent-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 button {
   padding: 0.6rem 1.2rem;
   border: none;
@@ -118,6 +151,17 @@ button.reset {
 
 button.reset:hover:not(:disabled) {
   background: #e8eaf6;
+}
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.end-of-results {
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
 }
 
 button.expand-button {
