@@ -40,7 +40,7 @@ function paramsToState(params) {
   }
 }
 
-function SearchFilters({ onSearch, loading, sources = [], initialParams, recentSearches = [] }) {
+function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialParams, recentSearches = [] }) {
   const [query, setQuery] = useState(DEFAULTS.query)
   const [location, setLocation] = useState(DEFAULTS.location)
   const [jobType, setJobType] = useState(DEFAULTS.jobType)
@@ -116,10 +116,12 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
     const name = savedName.trim() || buildRecentLabel(params)
     setSavedSearches((prev) => addSavedSearch(prev, name, params))
     setSavedName('')
+    onShowToast('Search saved', 'success')
   }
 
-  const handleClearFilter = (overrides) => {
-    onSearch({ ...buildParams(), ...overrides })
+  const handleClearFilter = (filter) => {
+    onSearch({ ...buildParams(), ...filter.clear })
+    onShowToast(`Removed ${filter.label}`)
   }
 
   const handleSavedClick = (entry) => {
@@ -275,7 +277,7 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
               <button
                 type="button"
                 className="active-filter-chip__remove"
-                onClick={() => handleClearFilter(filter.clear)}
+                onClick={() => handleClearFilter(filter)}
                 aria-label={`Remove ${filter.label}`}
               >
                 ×

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
 import JobDetail from './components/JobDetail'
 import ThemeToggle from './components/ThemeToggle'
+import ToastContainer from './components/Toast'
 import { getJob, listJobs, listSources, scrapeJobs } from './api'
 import {
   addRecentSearch,
@@ -34,6 +35,8 @@ function App() {
   const [hidden, setHidden] = useState(() => loadHidden())
   const [viewMode, setViewMode] = useState('all')
   const [theme, setTheme] = useState(() => loadTheme())
+  const [toasts, setToasts] = useState([])
+  const toastIdRef = useRef(0)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -80,6 +83,18 @@ function App() {
   const updateUrl = (params) => {
     const qs = serializeFilters(params)
     window.history.replaceState({}, '', qs ? `?${qs}` : window.location.pathname)
+  }
+
+  const showToast = (message, type = 'info') => {
+    const id = ++toastIdRef.current
+    setToasts((prev) => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id))
+    }, 3000)
+  }
+
+  const handleCloseToast = (id) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
   }
 
   const fetchJobs = async (params, { scrape = false, append = false } = {}) => {
@@ -146,24 +161,40 @@ function App() {
   const handleSelectJob = (id) => setSelectedJobId(id)
   const handleCloseDetail = () => setSelectedJobId(null)
 
-  const handleToggleFavorite = (id) => setFavorites((prev) => toggleFavorite(prev, id))
-  const handleToggleHidden = (id) => setHidden((prev) => toggleHidden(prev, id))
-  const handleClearHidden = () => setHidden(clearHidden())
+  const handleToggleFavorite = (id) => {
+    const removing = favoriteSet.has(id)
+    setFavorites((prev) => toggleFavorite(prev, id))
+    showToast(removing ? 'Removed from saved jobs' : 'Saved job')
+  }
+
+  const handleToggleHidden = (id) => {
+    const removing = hiddenSet.has(id)
+    setHidden((prev) => toggleHidden(prev, id))
+    showToast(removing ? 'Job shown' : 'Job hidden')
+  }
+
+  const handleClearHidden = () => {
+    setHidden(clearHidden())
+    showToast('Hidden jobs shown')
+  }
   const handleToggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
 
   const handleExportCsv = () => {
     const csv = jobsToCsv(visibleJobs)
     downloadFile(csv, `contract-scout-jobs-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv')
+    showToast('CSV exported', 'success')
   }
 
   const handleExportJson = () => {
     const json = JSON.stringify(visibleJobs, null, 2)
     downloadFile(json, `contract-scout-jobs-${new Date().toISOString().slice(0, 10)}.json`, 'application/json')
+    showToast('JSON exported', 'success')
   }
 
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href)
+      showToast('Search link copied', 'success')
     } catch {
       // fallback for older browsers
       const input = document.createElement('input')
@@ -172,6 +203,7 @@ function App() {
       input.select()
       document.execCommand('copy')
       document.body.removeChild(input)
+      showToast('Search link copied', 'success')
     }
   }
 
@@ -188,6 +220,7 @@ function App() {
       <section className="card">
         <SearchFilters
           onSearch={handleSearch}
+          onShowToast={showToast}
           loading={loading}
           sources={sources}
           initialParams={initialParams}
@@ -255,6 +288,8 @@ function App() {
         error={selectedJobError}
         onClose={handleCloseDetail}
       />
+
+      <ToastContainer toasts={toasts} onClose={handleCloseToast} />
     </div>
   )
 }
