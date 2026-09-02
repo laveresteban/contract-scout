@@ -20,6 +20,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Toast notifications** — `App` manages a toast stack and shows confirmation messages for saved searches, cleared filters, saved/hidden jobs, exports, and copied links.
 - **Error boundary + empty/error states** — `ErrorBoundary` catches render errors and shows a reload UI; `JobList` shows clearer empty and error messages with a retry button.
 - **Company filter / autocomplete** — `SearchFilters` has a Company input with an autocomplete dropdown built from the current results; `App` derives unique companies from `jobs` and passes `company` to the backend.
+- **Pay insights** — `App` shows a `PayInsights` panel above results with pay range, average, primary interval, and a 5-bucket histogram for the currently visible jobs.
 
 ## Current state snapshot
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
 import JobDetail from './components/JobDetail'
+import PayInsights from './components/PayInsights'
 import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
 import { getJob, listJobs, listSources, scrapeJobs } from './api'
@@ -282,6 +283,7 @@ function App() {
             )}
           </div>
         </div>
+        {visibleJobs.length > 0 && <PayInsights jobs={visibleJobs} />}
         <JobList
           jobs={jobs}
           loading={loading}
