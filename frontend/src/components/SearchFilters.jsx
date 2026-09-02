@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_FILTER_VALUES } from '../utils/filters'
+import { buildRecentLabel, DEFAULT_FILTER_VALUES } from '../utils/filters'
+import { addSavedSearch, loadSavedSearches, removeSavedSearch } from '../utils/savedSearches'
 
 const DEFAULTS = {
   query: 'software engineer',
@@ -50,6 +51,8 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
   const [source, setSource] = useState(DEFAULTS.source)
   const [sortBy, setSortBy] = useState(DEFAULTS.sortBy)
   const [sortOrder, setSortOrder] = useState(DEFAULTS.sortOrder)
+  const [savedName, setSavedName] = useState('')
+  const [savedSearches, setSavedSearches] = useState(() => loadSavedSearches())
 
   useEffect(() => {
     const next = paramsToState(initialParams ?? DEFAULT_FILTER_VALUES)
@@ -106,6 +109,22 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
   const handleRecentClick = (entry) => {
     applyState(entry.params)
     onSearch(entry.params)
+  }
+
+  const handleSaveSearch = () => {
+    const params = buildParams()
+    const name = savedName.trim() || buildRecentLabel(params)
+    setSavedSearches((prev) => addSavedSearch(prev, name, params))
+    setSavedName('')
+  }
+
+  const handleSavedClick = (entry) => {
+    applyState(entry.params)
+    onSearch(entry.params)
+  }
+
+  const handleDeleteSaved = (id) => {
+    setSavedSearches((prev) => removeSavedSearch(prev, id))
   }
 
   return (
@@ -212,6 +231,18 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
           Reset
         </button>
       </div>
+      <div className="save-search">
+        <input
+          type="text"
+          value={savedName}
+          onChange={(e) => setSavedName(e.target.value)}
+          placeholder="Name this search"
+          disabled={loading}
+        />
+        <button type="button" onClick={handleSaveSearch} disabled={loading}>
+          Save search
+        </button>
+      </div>
       {recentSearches.length > 0 && (
         <div className="recent-searches">
           <span className="recent-label">Recent searches</span>
@@ -225,6 +256,31 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
             >
               {entry.label}
             </button>
+          ))}
+        </div>
+      )}
+      {savedSearches.length > 0 && (
+        <div className="saved-searches">
+          <span className="saved-label">Saved searches</span>
+          {savedSearches.map((entry) => (
+            <span key={entry.id} className="saved-chip">
+              <button
+                type="button"
+                className="saved-chip__label"
+                onClick={() => handleSavedClick(entry)}
+                disabled={loading}
+              >
+                {entry.name}
+              </button>
+              <button
+                type="button"
+                className="saved-chip__delete"
+                onClick={() => handleDeleteSaved(entry.id)}
+                aria-label={`Delete ${entry.name}`}
+              >
+                ×
+              </button>
+            </span>
           ))}
         </div>
       )}
