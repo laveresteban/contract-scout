@@ -154,6 +154,8 @@ RESULTS_PER_BOARD=25
 MAX_RESULTS_PER_BOARD=100
 SCRAPER_HOURS_OLD=168
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+APIFY_API_TOKEN=your-apify-token
+APIFY_ACTOR_ID=hyperbach/remote-jobs-feed
 ```
 
 ## API reference
@@ -175,10 +177,16 @@ POST /api/v1/search
 }
 ```
 
+### List available sources
+
+```bash
+GET /api/v1/sources
+```
+
 ### List stored jobs with filters
 
 ```bash
-GET /api/v1/jobs?q=python&is_remote=true&is_us=true&employment_type=1099&min_pay=50&pay_interval=hourly&limit=50
+GET /api/v1/jobs?q=python&is_remote=true&is_us=true&employment_type=1099&min_pay=50&pay_interval=hourly&source=indeed&limit=50
 ```
 
 ## Important notes
@@ -190,7 +198,7 @@ GET /api/v1/jobs?q=python&is_remote=true&is_us=true&employment_type=1099&min_pay
 
 ## Roadmap
 
-- [ ] Add Apify `remote-jobs-feed` as an additional source
+- [x] Add Apify `remote-jobs-feed` as an additional source
 - [ ] Add scheduled background scraping with Celery / APScheduler
 - [ ] Add user authentication and saved searches
 - [ ] Add email alerts for new matching jobs
