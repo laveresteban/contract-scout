@@ -50,8 +50,10 @@ def client():
 def db():
     db = SessionLocal()
     try:
+        db.query(JobORM).delete(synchronize_session=False)
+        db.commit()
         yield db
     finally:
-        db.query(JobORM).delete()
+        db.query(JobORM).delete(synchronize_session=False)
         db.commit()
         db.close()

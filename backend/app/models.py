@@ -84,3 +84,5 @@ class JobFilterRequest(BaseModel):
     pay_interval: Optional[str] = None
     source: Optional[str] = None
     company: Optional[str] = None
+    sort_by: Optional[str] = Field(default="date_posted")
+    sort_order: Optional[str] = Field(default="desc")

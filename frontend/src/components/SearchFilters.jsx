@@ -10,7 +10,19 @@ const DEFAULTS = {
   maxPay: '',
   payInterval: '',
   source: '',
+  sortBy: 'date_posted',
+  sortOrder: 'desc',
 }
+
+const SORT_OPTIONS = [
+  { value: 'date_posted:desc', label: 'Date posted – newest' },
+  { value: 'date_posted:asc', label: 'Date posted – oldest' },
+  { value: 'min_pay:asc', label: 'Pay (min) – low to high' },
+  { value: 'min_pay:desc', label: 'Pay (min) – high to low' },
+  { value: 'max_pay:asc', label: 'Pay (max) – low to high' },
+  { value: 'max_pay:desc', label: 'Pay (max) – high to low' },
+  { value: 'relevance:desc', label: 'Relevance' },
+]
 
 function paramsToState(params) {
   return {
@@ -22,6 +34,8 @@ function paramsToState(params) {
     maxPay: params.max_pay ?? DEFAULTS.maxPay,
     payInterval: params.pay_interval ?? DEFAULTS.payInterval,
     source: params.source ?? DEFAULTS.source,
+    sortBy: params.sort_by ?? DEFAULTS.sortBy,
+    sortOrder: params.sort_order ?? DEFAULTS.sortOrder,
   }
 }
 
@@ -34,6 +48,8 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
   const [maxPay, setMaxPay] = useState(DEFAULTS.maxPay)
   const [payInterval, setPayInterval] = useState(DEFAULTS.payInterval)
   const [source, setSource] = useState(DEFAULTS.source)
+  const [sortBy, setSortBy] = useState(DEFAULTS.sortBy)
+  const [sortOrder, setSortOrder] = useState(DEFAULTS.sortOrder)
 
   useEffect(() => {
     const next = paramsToState(initialParams ?? DEFAULT_FILTER_VALUES)
@@ -45,6 +61,8 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
     setMaxPay(next.maxPay)
     setPayInterval(next.payInterval)
     setSource(next.source)
+    setSortBy(next.sortBy)
+    setSortOrder(next.sortOrder)
   }, [initialParams])
 
   const buildParams = () => ({
@@ -57,6 +75,8 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
     max_pay: maxPay ? parseFloat(maxPay) : undefined,
     pay_interval: payInterval || undefined,
     source: source || undefined,
+    sort_by: sortBy,
+    sort_order: sortOrder,
   })
 
   const applyState = (params) => {
@@ -69,6 +89,8 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
     setMaxPay(next.maxPay)
     setPayInterval(next.payInterval)
     setSource(next.source)
+    setSortBy(next.sortBy)
+    setSortOrder(next.sortOrder)
   }
 
   const handleSubmit = (e) => {
@@ -78,17 +100,7 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
 
   const handleReset = () => {
     applyState(DEFAULT_FILTER_VALUES)
-    onSearch({
-      query: DEFAULT_FILTER_VALUES.query,
-      location: DEFAULT_FILTER_VALUES.location,
-      is_remote: true,
-      job_type: DEFAULT_FILTER_VALUES.job_type,
-      employment_type: undefined,
-      min_pay: undefined,
-      max_pay: undefined,
-      pay_interval: undefined,
-      source: undefined,
-    })
+    onSearch(buildParams())
   }
 
   const handleRecentClick = (entry) => {
@@ -170,6 +182,23 @@ function SearchFilters({ onSearch, loading, sources = [], initialParams, recentS
             {sources.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Sort by
+          <select
+            value={`${sortBy}:${sortOrder}`}
+            onChange={(e) => {
+              const [nextSortBy, nextSortOrder] = e.target.value.split(':')
+              setSortBy(nextSortBy)
+              setSortOrder(nextSortOrder)
+            }}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>

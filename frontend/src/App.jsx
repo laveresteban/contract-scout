@@ -110,6 +110,8 @@ function App() {
         max_pay: params.max_pay,
         pay_interval: params.pay_interval,
         source: params.source,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
         limit: PAGE_SIZE,
         offset: currentOffset,
       })

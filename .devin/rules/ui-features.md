@@ -14,6 +14,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Save/hide jobs** — `JobCard` has Save and Hide actions; saved/hidden IDs are persisted in `localStorage` and filterable via a view mode.
 - **Export and copy search link** — Results header has CSV, JSON, and copy-link buttons.
 - **Dark mode + responsive tweaks** — Theme toggle persists in localStorage; dark mode overrides core colors and the mobile layout wraps better.
+- **Sort control** — `SearchFilters` lets users sort by date posted, min/max pay, and relevance; `App` passes `sort_by`/`sort_order` to the backend and persists them in the URL.
 
 ## Current state snapshot
 
@@ -21,11 +22,13 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - Components: `App`, `SearchFilters`, `JobList`, `JobCard`, `api`.
 - Existing UI: search form with filters, skeleton loaders, job cards, expand/collapse description, refresh button.
 - Backend capabilities already available and not yet used by the UI:
-  - `GET /api/v1/jobs/{job_id}` — individual job detail.
   - `POST /api/v1/jobs/filter` — full filter payload.
   - `DELETE /api/v1/jobs` — clear all stored jobs.
-  - `limit` and `offset` query params for pagination.
   - `company` filter query param.
+- Backend capabilities now used by the UI:
+  - `GET /api/v1/jobs/{job_id}` — individual job detail.
+  - `limit` / `offset` query params for pagination.
+  - `sort_by` / `sort_order` query params for sorting results.
 
 ## Proposed UI features
 

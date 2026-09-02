@@ -149,3 +149,99 @@ def test_search_jobs(client, monkeypatch):
     jobs = response.json()
     assert len(jobs) == 1
     assert jobs[0]["site"] == "remoteok"
+
+
+def test_list_jobs_sort_by_pay(client, db):
+    jobs = [
+        JobORM(
+            id="low-pay",
+            site="indeed",
+            title="Low Pay",
+            company="Acme",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+            min_amount=50000,
+            max_amount=60000,
+        ),
+        JobORM(
+            id="high-pay",
+            site="indeed",
+            title="High Pay",
+            company="Beta",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+            min_amount=150000,
+            max_amount=200000,
+        ),
+        JobORM(
+            id="mid-pay",
+            site="indeed",
+            title="Mid Pay",
+            company="Gamma",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+            min_amount=100000,
+            max_amount=120000,
+        ),
+    ]
+    for job in jobs:
+        db.add(job)
+    db.commit()
+
+    response = client.get("/api/v1/jobs?sort_by=max_pay&sort_order=desc")
+    assert response.status_code == 200
+    data = response.json()
+    assert [job["title"] for job in data] == ["High Pay", "Mid Pay", "Low Pay"]
+
+    response = client.get("/api/v1/jobs?sort_by=min_pay&sort_order=asc")
+    assert response.status_code == 200
+    data = response.json()
+    assert [job["title"] for job in data] == ["Low Pay", "Mid Pay", "High Pay"]
+
+
+def test_list_jobs_sort_by_relevance(client, db):
+    jobs = [
+        JobORM(
+            id="title-match",
+            site="indeed",
+            title="Python Contractor",
+            company="A",
+            description="Contract role.",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+        ),
+        JobORM(
+            id="company-match",
+            site="indeed",
+            title="Other Role",
+            company="Python Staffing",
+            description="Contract role.",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+        ),
+        JobORM(
+            id="description-match",
+            site="indeed",
+            title="Other Role",
+            company="B",
+            description="Looking for python experience.",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+        ),
+    ]
+    for job in jobs:
+        db.add(job)
+    db.commit()
+
+    response = client.get("/api/v1/jobs?q=python&sort_by=relevance&sort_order=desc")
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["title"] == "Python Contractor"
+    assert data[1]["company"] == "Python Staffing"
+    assert data[2]["description"] == "Looking for python experience."

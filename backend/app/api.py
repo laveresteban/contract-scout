@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -57,6 +57,29 @@ def _search_orm(query, filters: JobFilterRequest):
     return query
 
 
+def _sort_orm(query, filters: JobFilterRequest):
+    sort_by = (filters.sort_by or "date_posted").lower()
+    sort_order = (filters.sort_order or "desc").lower()
+    if sort_by == "relevance" and filters.query:
+        like = f"%{filters.query}%"
+        score = (
+            case((JobORM.title.ilike(like), 3), else_=0)
+            + case((JobORM.company.ilike(like), 2), else_=0)
+            + case((JobORM.description.ilike(like), 1), else_=0)
+        ).label("relevance")
+        return query.order_by(score.desc(), JobORM.date_posted.desc().nullslast())
+
+    column = {
+        "date_posted": JobORM.date_posted,
+        "min_pay": JobORM.min_amount,
+        "max_pay": JobORM.max_amount,
+    }.get(sort_by, JobORM.date_posted)
+
+    if sort_order == "asc":
+        return query.order_by(column.asc().nullslast())
+    return query.order_by(column.desc().nullslast())
+
+
 @router.post("/search")
 async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)):
     """Scrape and store jobs based on search criteria."""
@@ -97,6 +120,8 @@ def list_jobs(
     pay_interval: str = Query(None),
     source: str = Query(None),
     company: str = Query(None),
+    sort_by: str = Query("date_posted", description="Field to sort by: date_posted, min_pay, max_pay, relevance"),
+    sort_order: str = Query("desc", description="Sort order: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -112,17 +137,21 @@ def list_jobs(
         pay_interval=pay_interval,
         source=source,
         company=company,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
-    query = db.query(JobORM).order_by(JobORM.date_posted.desc().nullslast())
+    query = db.query(JobORM)
     query = _search_orm(query, filters)
+    query = _sort_orm(query, filters)
     jobs = query.offset(offset).limit(limit).all()
     return [Job.model_validate(j) for j in jobs]
 
 
 @router.post("/jobs/filter", response_model=list[Job])
 def filter_jobs(payload: JobFilterRequest, db: Session = Depends(get_db)):
-    query = db.query(JobORM).order_by(JobORM.date_posted.desc().nullslast())
+    query = db.query(JobORM)
     query = _search_orm(query, payload)
+    query = _sort_orm(query, payload)
     jobs = query.limit(200).all()
     return [Job.model_validate(j) for j in jobs]
 
