@@ -39,6 +39,29 @@ header p {
   color: #546e7a;
 }
 
+.header-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.theme-toggle {
+  padding: 0.5rem 0.75rem;
+  background: white;
+  color: #1a237e;
+  border: 1px solid #1a237e;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background: #e8eaf6;
+}
+
 .card {
   background: white;
   border-radius: 12px;
@@ -542,7 +565,120 @@ button.expand-button:hover {
     align-self: flex-start;
   }
 
+  .results-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .results-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .header-content {
+    justify-content: center;
+  }
+
   .modal {
     max-height: 95vh;
   }
+}
+
+/* Dark mode */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] body {
+  background: #121212;
+  color: #e0e0e0;
+}
+
+html[data-theme="dark"] h1,
+html[data-theme="dark"] h2,
+html[data-theme="dark"] h3,
+html[data-theme="dark"] .company,
+html[data-theme="dark"] .job-header h3,
+html[data-theme="dark"] .modal-header h2 {
+  color: #e0e0e0;
+}
+
+html[data-theme="dark"] header p,
+html[data-theme="dark"] .location,
+html[data-theme="dark"] .status,
+html[data-theme="dark"] .description,
+html[data-theme="dark"] .recent-label,
+html[data-theme="dark"] .modal-body .description,
+html[data-theme="dark"] .modal-close {
+  color: #b0bec5;
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .job-card,
+html[data-theme="dark"] .modal,
+html[data-theme="dark"] .skeleton-card {
+  background: #1e1e1e;
+  color: #e0e0e0;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] .view-mode-select,
+html[data-theme="dark"] .theme-toggle,
+html[data-theme="dark"] .clear-hidden-button,
+html[data-theme="dark"] .export-button,
+html[data-theme="dark"] .copy-link-button {
+  background: #2c2c2c;
+  color: #e0e0e0;
+  border-color: #424242;
+}
+
+html[data-theme="dark"] button {
+  background: #5c6bc0;
+}
+
+html[data-theme="dark"] button:hover:not(:disabled) {
+  background: #7986cb;
+}
+
+html[data-theme="dark"] button.reset {
+  background: white;
+  color: #1a237e;
+  border-color: #1a237e;
+}
+
+html[data-theme="dark"] button.reset:hover:not(:disabled) {
+  background: #e8eaf6;
+}
+
+html[data-theme="dark"] .action-button {
+  background: #333;
+  color: #e0e0e0;
+  border-color: #424242;
+}
+
+html[data-theme="dark"] .action-button:hover:not(:disabled) {
+  background: #424242;
+}
+
+html[data-theme="dark"] .action-button--active {
+  background: #4e342e;
+  color: #ffccbc;
+  border-color: #8d6e63;
+}
+
+html[data-theme="dark"] .recent-chip {
+  background: #2c2c2c;
+  color: #c5cae9;
+  border-color: #424242;
+}
+
+html[data-theme="dark"] .recent-chip:hover:not(:disabled) {
+  background: #3949ab;
+}
+
+html[data-theme="dark"] .skeleton {
+  background: linear-gradient(90deg, #2c2c2c 25%, #424242 50%, #2c2c2c 75%);
 }

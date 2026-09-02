@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
 import JobDetail from './components/JobDetail'
+import ThemeToggle from './components/ThemeToggle'
 import { getJob, listJobs, listSources, scrapeJobs } from './api'
 import {
   addRecentSearch,
@@ -10,7 +11,7 @@ import {
   serializeFilters,
 } from './utils/filters'
 import { downloadFile, jobsToCsv } from './utils/export'
-import { clearHidden, loadFavorites, loadHidden, toggleFavorite, toggleHidden } from './utils/prefs'
+import { clearHidden, loadFavorites, loadHidden, loadTheme, saveTheme, toggleFavorite, toggleHidden } from './utils/prefs'
 
 const PAGE_SIZE = 25
 
@@ -32,6 +33,12 @@ function App() {
   const [favorites, setFavorites] = useState(() => loadFavorites())
   const [hidden, setHidden] = useState(() => loadHidden())
   const [viewMode, setViewMode] = useState('all')
+  const [theme, setTheme] = useState(() => loadTheme())
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    saveTheme(theme)
+  }, [theme])
 
   useEffect(() => {
     listSources()
@@ -140,6 +147,7 @@ function App() {
   const handleToggleFavorite = (id) => setFavorites((prev) => toggleFavorite(prev, id))
   const handleToggleHidden = (id) => setHidden((prev) => toggleHidden(prev, id))
   const handleClearHidden = () => setHidden(clearHidden())
+  const handleToggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
 
   const handleExportCsv = () => {
     const csv = jobsToCsv(visibleJobs)
@@ -168,7 +176,10 @@ function App() {
   return (
     <div className="container">
       <header>
-        <h1>Contract Scout</h1>
+        <div className="header-content">
+          <h1>Contract Scout</h1>
+          <ThemeToggle theme={theme} onToggle={handleToggleTheme} />
+        </div>
         <p>Remote US contract jobs for software engineers and tech professionals.</p>
       </header>
 

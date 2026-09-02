@@ -13,6 +13,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Job detail modal** — `JobCard` is clickable and opens a `JobDetail` modal with full description, badges, and apply link.
 - **Save/hide jobs** — `JobCard` has Save and Hide actions; saved/hidden IDs are persisted in `localStorage` and filterable via a view mode.
 - **Export and copy search link** — Results header has CSV, JSON, and copy-link buttons.
+- **Dark mode + responsive tweaks** — Theme toggle persists in localStorage; dark mode overrides core colors and the mobile layout wraps better.
 
 ## Current state snapshot
 
