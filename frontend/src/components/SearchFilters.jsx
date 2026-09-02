@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { buildRecentLabel, DEFAULT_FILTER_VALUES } from '../utils/filters'
 import { addSavedSearch, loadSavedSearches, removeSavedSearch } from '../utils/savedSearches'
 
@@ -11,6 +11,7 @@ const DEFAULTS = {
   maxPay: '',
   payInterval: '',
   source: '',
+  company: '',
   sortBy: 'date_posted',
   sortOrder: 'desc',
 }
@@ -35,12 +36,21 @@ function paramsToState(params) {
     maxPay: params.max_pay ?? DEFAULTS.maxPay,
     payInterval: params.pay_interval ?? DEFAULTS.payInterval,
     source: params.source ?? DEFAULTS.source,
+    company: params.company ?? DEFAULTS.company,
     sortBy: params.sort_by ?? DEFAULTS.sortBy,
     sortOrder: params.sort_order ?? DEFAULTS.sortOrder,
   }
 }
 
-function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialParams, recentSearches = [] }) {
+function SearchFilters({
+  onSearch,
+  onShowToast,
+  loading,
+  sources = [],
+  companies = [],
+  initialParams,
+  recentSearches = [],
+}) {
   const [query, setQuery] = useState(DEFAULTS.query)
   const [location, setLocation] = useState(DEFAULTS.location)
   const [jobType, setJobType] = useState(DEFAULTS.jobType)
@@ -49,10 +59,14 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
   const [maxPay, setMaxPay] = useState(DEFAULTS.maxPay)
   const [payInterval, setPayInterval] = useState(DEFAULTS.payInterval)
   const [source, setSource] = useState(DEFAULTS.source)
+  const [company, setCompany] = useState(DEFAULTS.company)
   const [sortBy, setSortBy] = useState(DEFAULTS.sortBy)
   const [sortOrder, setSortOrder] = useState(DEFAULTS.sortOrder)
   const [savedName, setSavedName] = useState('')
   const [savedSearches, setSavedSearches] = useState(() => loadSavedSearches())
+  const [showCompanySuggestions, setShowCompanySuggestions] = useState(false)
+  const [highlightedCompany, setHighlightedCompany] = useState(-1)
+  const companyInputRef = useRef(null)
 
   useEffect(() => {
     const next = paramsToState(initialParams ?? DEFAULT_FILTER_VALUES)
@@ -64,6 +78,7 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
     setMaxPay(next.maxPay)
     setPayInterval(next.payInterval)
     setSource(next.source)
+    setCompany(next.company)
     setSortBy(next.sortBy)
     setSortOrder(next.sortOrder)
   }, [initialParams])
@@ -78,6 +93,7 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
     max_pay: maxPay ? parseFloat(maxPay) : undefined,
     pay_interval: payInterval || undefined,
     source: source || undefined,
+    company: company || undefined,
     sort_by: sortBy,
     sort_order: sortOrder,
   })
@@ -92,6 +108,7 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
     setMaxPay(next.maxPay)
     setPayInterval(next.payInterval)
     setSource(next.source)
+    setCompany(next.company)
     setSortBy(next.sortBy)
     setSortOrder(next.sortOrder)
   }
@@ -133,6 +150,53 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
     setSavedSearches((prev) => removeSavedSearch(prev, id))
   }
 
+  const companySuggestions = company
+    ? companies
+        .filter((c) => c.toLowerCase().includes(company.toLowerCase()))
+        .slice(0, 10)
+    : []
+
+  const handleCompanyChange = (e) => {
+    setCompany(e.target.value)
+    setShowCompanySuggestions(true)
+    setHighlightedCompany(-1)
+  }
+
+  const selectCompany = (value) => {
+    setCompany(value)
+    setShowCompanySuggestions(false)
+    setHighlightedCompany(-1)
+    companyInputRef.current?.focus()
+  }
+
+  const handleCompanyBlur = () => {
+    // Delay hiding so click events on suggestions can fire first
+    setTimeout(() => {
+      setShowCompanySuggestions(false)
+      setHighlightedCompany(-1)
+    }, 150)
+  }
+
+  const handleCompanyKeyDown = (e) => {
+    if (!showCompanySuggestions || !companySuggestions.length) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlightedCompany((prev) => (prev + 1) % companySuggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlightedCompany((prev) =>
+        prev <= 0 ? companySuggestions.length - 1 : prev - 1
+      )
+    } else if (e.key === 'Enter' && highlightedCompany >= 0) {
+      e.preventDefault()
+      selectCompany(companySuggestions[highlightedCompany])
+    } else if (e.key === 'Escape') {
+      setShowCompanySuggestions(false)
+      setHighlightedCompany(-1)
+    }
+  }
+
   const sortValue = `${sortBy}:${sortOrder}`
   const sortLabel = SORT_OPTIONS.find((option) => option.value === sortValue)?.label || sortValue
 
@@ -145,6 +209,7 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
     maxPay && { key: 'max_pay', label: `max $${maxPay}`, clear: { max_pay: undefined } },
     payInterval && { key: 'pay_interval', label: payInterval, clear: { pay_interval: undefined } },
     source && { key: 'source', label: source, clear: { source: undefined } },
+    company && { key: 'company', label: company, clear: { company: undefined } },
     (sortBy !== DEFAULTS.sortBy || sortOrder !== DEFAULTS.sortOrder) && {
       key: 'sort',
       label: `sort: ${sortLabel}`,
@@ -229,6 +294,44 @@ function SearchFilters({ onSearch, onShowToast, loading, sources = [], initialPa
               </option>
             ))}
           </select>
+        </label>
+        <label className="autocomplete-field">
+          Company
+          <input
+            ref={companyInputRef}
+            type="text"
+            value={company}
+            onChange={handleCompanyChange}
+            onFocus={() => setShowCompanySuggestions(true)}
+            onBlur={handleCompanyBlur}
+            onKeyDown={handleCompanyKeyDown}
+            placeholder="e.g. Acme"
+            autoComplete="off"
+            aria-autocomplete="list"
+            aria-controls="company-suggestions"
+            aria-activedescendant={
+              highlightedCompany >= 0 ? `company-suggestion-${highlightedCompany}` : undefined
+            }
+          />
+          {showCompanySuggestions && companySuggestions.length > 0 && (
+            <ul id="company-suggestions" className="autocomplete-list" role="listbox">
+              {companySuggestions.map((suggestion, index) => (
+                <li
+                  key={suggestion}
+                  id={`company-suggestion-${index}`}
+                  className={`autocomplete-item ${index === highlightedCompany ? 'autocomplete-item--highlighted' : ''}`}
+                  role="option"
+                  aria-selected={index === highlightedCompany}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    selectCompany(suggestion)
+                  }}
+                >
+                  {suggestion}
+                </li>
+              ))}
+            </ul>
+          )}
         </label>
         <label>
           Sort by

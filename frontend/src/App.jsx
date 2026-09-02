@@ -80,6 +80,14 @@ function App() {
     })
   }, [jobs, hiddenSet, favoriteSet, viewMode])
 
+  const companies = useMemo(() => {
+    const names = new Set()
+    jobs.forEach((job) => {
+      if (job.company) names.add(job.company)
+    })
+    return [...names].sort()
+  }, [jobs])
+
   const updateUrl = (params) => {
     const qs = serializeFilters(params)
     window.history.replaceState({}, '', qs ? `?${qs}` : window.location.pathname)
@@ -125,6 +133,7 @@ function App() {
         max_pay: params.max_pay,
         pay_interval: params.pay_interval,
         source: params.source,
+        company: params.company,
         sort_by: params.sort_by,
         sort_order: params.sort_order,
         limit: PAGE_SIZE,
@@ -229,6 +238,7 @@ function App() {
           onShowToast={showToast}
           loading={loading}
           sources={sources}
+          companies={companies}
           initialParams={initialParams}
           recentSearches={recentSearches}
         />
