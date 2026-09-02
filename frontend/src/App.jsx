@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
-import { listJobs, listSources, scrapeJobs } from './api'
+import JobDetail from './components/JobDetail'
+import { getJob, listJobs, listSources, scrapeJobs } from './api'
 import {
   addRecentSearch,
   deserializeFilters,
@@ -22,6 +23,10 @@ function App() {
   const [initialParams, setInitialParams] = useState(() => deserializeFilters(window.location.search))
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const [selectedJobId, setSelectedJobId] = useState(null)
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [selectedJobLoading, setSelectedJobLoading] = useState(false)
+  const [selectedJobError, setSelectedJobError] = useState(null)
 
   useEffect(() => {
     listSources()
@@ -33,6 +38,21 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      setSelectedJob(null)
+      setSelectedJobError(null)
+      return
+    }
+    setSelectedJobLoading(true)
+    setSelectedJob(null)
+    setSelectedJobError(null)
+    getJob(selectedJobId)
+      .then((data) => setSelectedJob(data))
+      .catch((err) => setSelectedJobError(err.message || 'Could not load job details.'))
+      .finally(() => setSelectedJobLoading(false))
+  }, [selectedJobId])
 
   const updateUrl = (params) => {
     const qs = serializeFilters(params)
@@ -97,6 +117,9 @@ function App() {
     }
   }
 
+  const handleSelectJob = (id) => setSelectedJobId(id)
+  const handleCloseDetail = () => setSelectedJobId(null)
+
   return (
     <div className="container">
       <header>
@@ -128,8 +151,16 @@ function App() {
           error={error}
           hasMore={hasMore}
           onLoadMore={handleLoadMore}
+          onSelectJob={handleSelectJob}
         />
       </section>
+
+      <JobDetail
+        job={selectedJob}
+        loading={selectedJobLoading}
+        error={selectedJobError}
+        onClose={handleCloseDetail}
+      />
     </div>
   )
 }

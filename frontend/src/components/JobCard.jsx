@@ -1,37 +1,7 @@
 import { useMemo, useState } from 'react'
+import { formatDate, formatPay, stripHtml } from '../utils/format'
 
-function formatCurrency(amount, currency) {
-  if (amount == null) return ''
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency || 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
-
-function stripHtml(html) {
-  if (!html) return ''
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
-function formatDate(dateString) {
-  if (!dateString) return null
-  const d = new Date(dateString)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function formatPay(job) {
-  const parts = []
-  if (job.min_amount != null) parts.push(formatCurrency(job.min_amount, job.currency))
-  if (job.max_amount != null) parts.push(formatCurrency(job.max_amount, job.currency))
-  if (!parts.length) return null
-  let label = parts.join(' – ')
-  if (job.interval) label += ` / ${job.interval}`
-  return label
-}
-
-function JobCard({ job }) {
+function JobCard({ job, onSelect }) {
   const [expanded, setExpanded] = useState(false)
 
   const salary = formatPay(job)
@@ -41,10 +11,27 @@ function JobCard({ job }) {
   const hasLongDescription = descriptionText.length > 240
 
   return (
-    <article className="job-card">
+    <article
+      className="job-card"
+      onClick={() => onSelect?.(job.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect?.(job.id)
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <div className="job-header">
         <h3>{job.title}</h3>
-        <a className="apply-link" href={applyUrl} target="_blank" rel="noopener noreferrer">
+        <a
+          className="apply-link"
+          href={applyUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
           View job
         </a>
       </div>
@@ -79,7 +66,10 @@ function JobCard({ job }) {
             <button
               type="button"
               className="expand-button"
-              onClick={() => setExpanded(!expanded)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setExpanded(!expanded)
+              }}
             >
               {expanded ? 'Show less' : 'Show more'}
             </button>

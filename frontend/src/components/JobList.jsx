@@ -16,7 +16,7 @@ function SkeletonCard() {
   )
 }
 
-function JobList({ jobs, loading, loadingMore, error, hasMore, onLoadMore }) {
+function JobList({ jobs, loading, loadingMore, error, hasMore, onLoadMore, onSelectJob }) {
   if (loading) {
     return (
       <section className="job-list" aria-label="Loading jobs">
@@ -44,7 +44,7 @@ function JobList({ jobs, loading, loadingMore, error, hasMore, onLoadMore }) {
   return (
     <section className="job-list">
       {jobs.map((job) => (
-        <JobCard key={job.id} job={job} />
+        <JobCard key={job.id} job={job} onSelect={onSelectJob} />
       ))}
       {hasMore && (
         <div className="load-more">

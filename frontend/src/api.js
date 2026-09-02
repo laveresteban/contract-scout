@@ -27,3 +27,9 @@ export async function listJobs(params) {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+export async function getJob(id) {
+  const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(id)}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
