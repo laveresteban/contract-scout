@@ -7,7 +7,19 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Job, JobFilterRequest, JobORM, JobSearchRequest
-from app.scraper import scrape_major_boards, scrape_remote_boards, save_jobs
+from app.scraper import ALL_SOURCES, scrape_major_boards, scrape_remote_boards, save_jobs
+
+SOURCE_LABELS = {
+    "indeed": "Indeed",
+    "linkedin": "LinkedIn",
+    "zip_recruiter": "ZipRecruiter",
+    "google": "Google",
+    "remoteok": "RemoteOK",
+    "weworkremotely": "We Work Remotely",
+    "jobicy": "Jobicy",
+    "remotive": "Remotive",
+    "apify": "Apify",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +60,26 @@ def _search_orm(query, filters: JobFilterRequest):
 @router.post("/search")
 async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)):
     """Scrape and store jobs based on search criteria."""
-    sources = payload.sources or ["indeed", "linkedin", "zip_recruiter", "google"]
+    sources = payload.sources or ["indeed", "linkedin"]
     major_jobs = scrape_major_boards(
         search_term=payload.query,
         location=payload.location or "United States",
         is_remote=payload.is_remote,
         job_type=payload.job_type or "contract",
+        employment_type=payload.employment_type,
         results_wanted=payload.results_wanted,
         sources=sources,
     )
-    remote_jobs = await scrape_remote_boards(
-        search_term=payload.query,
-        results_wanted=payload.results_wanted,
-    )
+    try:
+        remote_jobs = await scrape_remote_boards(
+            search_term=payload.query,
+            job_type=payload.job_type or "contract",
+            employment_type=payload.employment_type,
+            results_wanted=payload.results_wanted,
+        )
+    except Exception as exc:
+        logger.warning("Remote scraping failed during search, continuing with major boards: %s", exc)
+        remote_jobs = []
     all_jobs = major_jobs + remote_jobs
     saved = save_jobs(all_jobs, db)
     return {"scraped": len(all_jobs), "saved": saved}
@@ -114,6 +133,12 @@ def get_job(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return Job.model_validate(job)
+
+
+@router.get("/sources")
+def list_sources():
+    """Return the available job sources and their display labels."""
+    return [{"id": s, "label": SOURCE_LABELS.get(s, s)} for s in ALL_SOURCES]
 
 
 @router.delete("/jobs")

@@ -1,5 +1,11 @@
 const API_BASE = '/api/v1'
 
+export async function listSources() {
+  const res = await fetch(`${API_BASE}/sources`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 export async function scrapeJobs(params) {
   const res = await fetch(`${API_BASE}/search`, {
     method: 'POST',

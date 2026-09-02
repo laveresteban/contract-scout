@@ -1,20 +1,29 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
-import { listJobs, scrapeJobs } from './api'
+import { listJobs, listSources, scrapeJobs } from './api'
 
 function App() {
   const [jobs, setJobs] = useState([])
+  const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [lastSearch, setLastSearch] = useState({})
+
+  useEffect(() => {
+    listSources()
+      .then((data) => setSources(data))
+      .catch(() => setSources([]))
+  }, [])
 
   const handleSearch = async (params) => {
     setLoading(true)
     setError(null)
     setLastSearch(params)
     try {
-      await scrapeJobs({ ...params, results_wanted: 25 })
+      const scrapeParams = { ...params }
+      delete scrapeParams.source
+      await scrapeJobs({ ...scrapeParams, results_wanted: 25 })
       const fetched = await listJobs({
         q: params.query,
         is_remote: true,
@@ -24,6 +33,7 @@ function App() {
         min_pay: params.min_pay,
         max_pay: params.max_pay,
         pay_interval: params.pay_interval,
+        source: params.source,
         limit: 100,
       })
       setJobs(fetched)
@@ -42,7 +52,7 @@ function App() {
       </header>
 
       <section className="card">
-        <SearchFilters onSearch={handleSearch} loading={loading} />
+        <SearchFilters onSearch={handleSearch} loading={loading} sources={sources} />
       </section>
 
       <section className="card">

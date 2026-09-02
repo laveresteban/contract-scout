@@ -1,13 +1,14 @@
 import { useState } from 'react'
 
-function SearchFilters({ onSearch, loading }) {
-  const [query, setQuery] = useState('software engineer contract')
+function SearchFilters({ onSearch, loading, sources = [] }) {
+  const [query, setQuery] = useState('software engineer')
   const [location, setLocation] = useState('United States')
   const [jobType, setJobType] = useState('contract')
   const [employmentType, setEmploymentType] = useState('')
   const [minPay, setMinPay] = useState('')
   const [maxPay, setMaxPay] = useState('')
   const [payInterval, setPayInterval] = useState('')
+  const [source, setSource] = useState('')
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -20,6 +21,7 @@ function SearchFilters({ onSearch, loading }) {
       min_pay: minPay ? parseFloat(minPay) : undefined,
       max_pay: maxPay ? parseFloat(maxPay) : undefined,
       pay_interval: payInterval || undefined,
+      source: source || undefined,
     })
   }
 
@@ -87,6 +89,17 @@ function SearchFilters({ onSearch, loading }) {
           <option value="hourly">Hourly</option>
           <option value="yearly">Yearly</option>
           <option value="monthly">Monthly</option>
+        </select>
+      </label>
+      <label>
+        Source
+        <select value={source} onChange={(e) => setSource(e.target.value)}>
+          <option value="">All sources</option>
+          {sources.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
         </select>
       </label>
       <button type="submit" disabled={loading}>

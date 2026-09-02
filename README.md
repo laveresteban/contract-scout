@@ -5,22 +5,22 @@ A web app that helps software engineers and tech professionals find **remote, US
 ## Tech stack
 
 - **Backend:** Python [FastAPI](https://fastapi.tiangolo.com/) + SQLAlchemy (SQLite)
-- **Scraping:** [JobSpy](https://github.com/speedyapply/JobSpy) for major boards + [Playwright](https://playwright.dev/) for remote-first boards
+- **Scraping:** [JobSpy](https://github.com/speedyapply/JobSpy) for major boards + public JSON/RSS feeds for remote-first boards
 - **Frontend:** [React](https://react.dev/) + [Vite](https://vitejs.dev/)
 
-## Research: why JobSpy + Playwright?
+## Research: why JobSpy + public feeds?
 
 Before building, I evaluated several MCP servers and scraping approaches. For a standalone web app, the most reliable approach is to use the underlying libraries directly rather than an MCP layer.
 
 | Tool / Approach | Best for | Why included / not included |
 | --- | --- | --- |
 | **JobSpy (python-jobspy)** | Scraping LinkedIn, Indeed, ZipRecruiter, Google, Glassdoor concurrently | Has native `job_type='contract'`, `is_remote=True`, and `country_indeed='USA'` filters. Returns a clean DataFrame with salary, company, title, etc. |
-| **Playwright** | Remote-first boards (RemoteOK, We Work Remotely) and JavaScript-heavy pages | Used as a fallback when a site has no API or is not supported by JobSpy. Also supports stealth, headless mode, and form filling. |
+| **Public JSON/RSS feeds** | Remote-first boards (RemoteOK, We Work Remotely, Jobicy, Remotive) | RemoteOK, We Work Remotely, Jobicy, and Remotive all publish free, public feeds. Faster and more reliable than browser automation, and avoids the ToS/robots issues of scraping their HTML. |
 | **Apify remote-jobs-feed** | Pre-aggregated remote feed | Excellent as an external data source, but costs Apify credits. Can be added later via the `apify-client` dependency. |
 | **JobPilot / JobSpy MCP / LinkedIn-Job-Scraper-MCP** | Claude Desktop / MCP clients | These are MCP servers, not web app backends. They are useful for AI assistants, but we need a direct API for the web app. |
-| **mcp-playwright-browser** | AI-driven browser control | Overkill for a focused job search; Playwright directly is simpler and cheaper. |
+| **mcp-playwright-browser** | AI-driven browser control | Overkill for a focused job search; public feeds and httpx are simpler and cheaper. |
 
-The current implementation uses **JobSpy for major boards** and **Playwright for remote-first boards**. More sources can be added by extending `app/scraper.py`.
+The current implementation uses **JobSpy for major boards** and **public feeds for remote-first boards**. More sources can be added by extending `app/scraper.py`.
 
 ## Features
 
@@ -43,7 +43,7 @@ contract-scout/
 │   ├── app/
 │   │   ├── main.py          # FastAPI entrypoint
 │   │   ├── api.py           # REST routes
-│   │   ├── scraper.py       # JobSpy + Playwright scrapers
+│   │   ├── scraper.py       # JobSpy + public feed scrapers
 │   │   ├── models.py        # Pydantic + SQLAlchemy models
 │   │   ├── database.py      # DB session management
 │   │   └── config.py        # Settings
@@ -93,7 +93,6 @@ venv\Scripts\activate
 source venv/bin/activate
 
 pip install -r requirements.txt
-playwright install chromium
 
 # Run the server
 uvicorn app.main:app --reload --port 8000
@@ -115,7 +114,7 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Docker setup
 
-If you prefer containers, the project is split into a backend container (FastAPI + Playwright) and a frontend container (Nginx serving the built React app).
+If you prefer containers, the project is split into a backend container (FastAPI) and a frontend container (Nginx serving the built React app).
 
 ### 1. Build and run
 
@@ -185,7 +184,7 @@ GET /api/v1/jobs?q=python&is_remote=true&is_us=true&employment_type=1099&min_pay
 ## Important notes
 
 - **Terms of service:** Many job boards restrict automated scraping. This tool is intended for personal use and job search assistance. Always review a site's robots.txt and Terms of Use before deploying a public scraper.
-- **Rate limiting:** JobSpy and Playwright can be rate limited. Use proxies, increase delays, or lower `results_wanted` if you hit limits.
+- **Rate limiting:** JobSpy and public feed clients can be rate limited. Use proxies, increase delays, or lower `results_wanted` if you hit limits.
 - **US-only filtering:** JobSpy's `country_indeed='USA'` filters Indeed by country. Other boards return a `location` string that is parsed for remote / US terms. This is a best-effort heuristic; always verify the listing.
 - **Employment type detection:** W2 / 1099 / C2C labels are inferred from the job description text using keyword matching, because most job boards do not expose a structured field for it.
 
