@@ -33,3 +33,9 @@ export async function getJob(id) {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+export async function getJobStats() {
+  const res = await fetch(`${API_BASE}/jobs/stats`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}

@@ -23,6 +23,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Pay insights** — `App` shows a `PayInsights` panel above results with pay range, average, primary interval, and a 5-bucket histogram for the currently visible jobs.
 - **Keyboard shortcuts** — `Ctrl/Cmd + K` and `/` focus the search input when not already in an editable field.
 - **Highlight new jobs** — `App` loads the last-visit timestamp from `localStorage`, saves it on `beforeunload`, and `JobCard` shows a New badge for jobs scraped after that timestamp.
+- **Last-scraped timestamp** — `GET /api/v1/jobs/stats` returns `last_scraped` and `count`; `App` displays the relative last-scraped time in the results header.
 
 ## Current state snapshot
 

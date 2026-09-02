@@ -2,11 +2,11 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Job, JobFilterRequest, JobORM, JobSearchRequest
+from app.models import Job, JobFilterRequest, JobORM, JobSearchRequest, JobStats
 from app.scraper import ALL_SOURCES, scrape_major_boards, scrape_remote_boards, save_jobs
 
 SOURCE_LABELS = {
@@ -154,6 +154,13 @@ def filter_jobs(payload: JobFilterRequest, db: Session = Depends(get_db)):
     query = _sort_orm(query, payload)
     jobs = query.limit(200).all()
     return [Job.model_validate(j) for j in jobs]
+
+
+@router.get("/jobs/stats", response_model=JobStats)
+def get_job_stats(db: Session = Depends(get_db)):
+    """Return aggregate stats for the stored job dataset."""
+    last_scraped, count = db.query(func.max(JobORM.date_scraped), func.count(JobORM.id)).one()
+    return JobStats(last_scraped=last_scraped, count=count)
 
 
 @router.get("/jobs/{job_id}", response_model=Job)

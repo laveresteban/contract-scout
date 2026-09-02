@@ -489,6 +489,17 @@ button.expand-button:hover {
   color: #1a237e;
 }
 
+.results-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.last-scraped {
+  font-size: 0.85rem;
+  color: #607d8b;
+}
+
 .results-actions {
   display: flex;
   gap: 0.75rem;
@@ -1027,6 +1038,10 @@ html[data-theme="dark"] .active-filter-chip {
 
 html[data-theme="dark"] .active-filter-chip__remove {
   color: #c5cae9;
+}
+
+html[data-theme="dark"] .last-scraped {
+  color: #b0bec5;
 }
 
 html[data-theme="dark"] .active-filter-chip__remove:hover:not(:disabled) {

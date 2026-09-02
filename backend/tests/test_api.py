@@ -43,6 +43,14 @@ def test_list_sources(client):
     assert "apify" in ids
 
 
+def test_get_job_stats(client, sample_job):
+    response = client.get("/api/v1/jobs/stats")
+    assert response.status_code == 200
+    stats = response.json()
+    assert stats["count"] == 1
+    assert stats["last_scraped"] is not None
+
+
 def test_list_jobs(client, sample_job):
     response = client.get("/api/v1/jobs")
     assert response.status_code == 200

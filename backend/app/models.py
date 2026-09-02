@@ -86,3 +86,8 @@ class JobFilterRequest(BaseModel):
     company: Optional[str] = None
     sort_by: Optional[str] = Field(default="date_posted")
     sort_order: Optional[str] = Field(default="desc")
+
+
+class JobStats(BaseModel):
+    last_scraped: Optional[datetime] = None
+    count: int

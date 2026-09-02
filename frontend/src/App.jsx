@@ -5,7 +5,7 @@ import JobDetail from './components/JobDetail'
 import PayInsights from './components/PayInsights'
 import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
-import { getJob, listJobs, listSources, scrapeJobs } from './api'
+import { getJob, getJobStats, listJobs, listSources, scrapeJobs } from './api'
 import {
   addRecentSearch,
   deserializeFilters,
@@ -13,6 +13,7 @@ import {
   serializeFilters,
 } from './utils/filters'
 import { downloadFile, jobsToCsv } from './utils/export'
+import { formatRelativeTime } from './utils/format'
 import {
   clearHidden,
   loadFavorites,
@@ -34,6 +35,7 @@ function App() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState(null)
   const [lastSearch, setLastSearch] = useState(null)
+  const [jobStats, setJobStats] = useState(null)
   const [recentSearches, setRecentSearches] = useState(() => loadRecentSearches())
   const [initialParams, setInitialParams] = useState(() => deserializeFilters(window.location.search))
   const [offset, setOffset] = useState(0)
@@ -65,6 +67,8 @@ function App() {
     listSources()
       .then((data) => setSources(data))
       .catch(() => setSources([]))
+
+    fetchJobStats()
 
     if (window.location.search) {
       fetchJobs(deserializeFilters(window.location.search))
@@ -109,6 +113,15 @@ function App() {
   const updateUrl = (params) => {
     const qs = serializeFilters(params)
     window.history.replaceState({}, '', qs ? `?${qs}` : window.location.pathname)
+  }
+
+  const fetchJobStats = async () => {
+    try {
+      const stats = await getJobStats()
+      setJobStats(stats)
+    } catch {
+      setJobStats(null)
+    }
   }
 
   const showToast = (message, type = 'info') => {
@@ -177,6 +190,7 @@ function App() {
     setRecentSearches((prev) => addRecentSearch(prev, params))
     setViewMode('all')
     await fetchJobs(params, { scrape: true })
+    await fetchJobStats()
   }
 
   const handleLoadMore = () => {
@@ -264,9 +278,16 @@ function App() {
 
       <section className="card">
         <div className="results-header">
-          <h2>
-            {viewMode === 'favorites' ? 'Saved jobs' : 'Jobs'} ({visibleJobs.length})
-          </h2>
+          <div className="results-title">
+            <h2>
+              {viewMode === 'favorites' ? 'Saved jobs' : 'Jobs'} ({visibleJobs.length})
+            </h2>
+            {jobStats?.last_scraped && (
+              <span className="last-scraped" title={new Date(jobStats.last_scraped).toLocaleString()}>
+                Last scraped {formatRelativeTime(jobStats.last_scraped)}
+              </span>
+            )}
+          </div>
           <div className="results-actions">
             <select
               value={viewMode}
