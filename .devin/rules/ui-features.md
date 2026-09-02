@@ -21,6 +21,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Error boundary + empty/error states** — `ErrorBoundary` catches render errors and shows a reload UI; `JobList` shows clearer empty and error messages with a retry button.
 - **Company filter / autocomplete** — `SearchFilters` has a Company input with an autocomplete dropdown built from the current results; `App` derives unique companies from `jobs` and passes `company` to the backend.
 - **Pay insights** — `App` shows a `PayInsights` panel above results with pay range, average, primary interval, and a 5-bucket histogram for the currently visible jobs.
+- **Keyboard shortcuts** — `Ctrl/Cmd + K` and `/` focus the search input when not already in an editable field.
 
 ## Current state snapshot
 

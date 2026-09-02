@@ -67,6 +67,7 @@ function SearchFilters({
   const [showCompanySuggestions, setShowCompanySuggestions] = useState(false)
   const [highlightedCompany, setHighlightedCompany] = useState(-1)
   const companyInputRef = useRef(null)
+  const queryInputRef = useRef(null)
 
   useEffect(() => {
     const next = paramsToState(initialParams ?? DEFAULT_FILTER_VALUES)
@@ -82,6 +83,26 @@ function SearchFilters({
     setSortBy(next.sortBy)
     setSortOrder(next.sortOrder)
   }, [initialParams])
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const active = document.activeElement
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+        return
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        queryInputRef.current?.focus()
+      } else if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        queryInputRef.current?.focus()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const buildParams = () => ({
     query,
@@ -223,6 +244,8 @@ function SearchFilters({
         <label>
           Search
           <input
+            ref={queryInputRef}
+            id="search-query"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
