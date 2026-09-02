@@ -158,6 +158,12 @@ function App() {
     }
   }
 
+  const handleRetry = () => {
+    if (lastSearch) {
+      handleSearch(lastSearch)
+    }
+  }
+
   const handleSelectJob = (id) => setSelectedJobId(id)
   const handleCloseDetail = () => setSelectedJobId(null)
 
@@ -274,6 +280,7 @@ function App() {
           hasMore={hasMore}
           onLoadMore={handleLoadMore}
           onSelectJob={handleSelectJob}
+          onRetry={handleRetry}
           favorites={favorites}
           hidden={hidden}
           viewMode={viewMode}

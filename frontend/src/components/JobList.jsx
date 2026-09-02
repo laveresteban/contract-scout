@@ -24,6 +24,7 @@ function JobList({
   hasMore,
   onLoadMore,
   onSelectJob,
+  onRetry,
   favorites,
   hidden,
   viewMode,
@@ -42,11 +43,15 @@ function JobList({
 
   if (error) {
     return (
-      <p className="status error">
-        <strong>Something went wrong.</strong>
-        <br />
-        {error}
-      </p>
+      <div className="status error error-card">
+        <strong>Could not load jobs.</strong>
+        <p>{error}</p>
+        {onRetry && (
+          <button onClick={onRetry} className="retry-button" type="button">
+            Try again
+          </button>
+        )}
+      </div>
     )
   }
 
@@ -59,13 +64,13 @@ function JobList({
   })
 
   if (!visibleJobs.length) {
-    return (
-      <p className="status">
-        {viewMode === 'favorites'
-          ? 'No saved jobs in this set. Save jobs from the results.'
-          : 'No jobs found yet. Run a search above.'}
-      </p>
-    )
+    let message = 'No jobs found yet. Run a search above.'
+    if (viewMode === 'favorites') {
+      message = 'No saved jobs yet. Save jobs from the results to see them here.'
+    } else if (jobs.length > 0) {
+      message = 'No jobs match the current filters. Try adjusting your search.'
+    }
+    return <p className="status empty-state">{message}</p>
   }
 
   return (

@@ -18,6 +18,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Saved searches (localStorage)** — `SearchFilters` lets users name, save, delete, and re-run filter combinations; saved searches are persisted in `localStorage`.
 - **Active filter chips** — `SearchFilters` displays a row of removable chips for each applied filter; clicking a chip clears that filter and re-runs the search.
 - **Toast notifications** — `App` manages a toast stack and shows confirmation messages for saved searches, cleared filters, saved/hidden jobs, exports, and copied links.
+- **Error boundary + empty/error states** — `ErrorBoundary` catches render errors and shows a reload UI; `JobList` shows clearer empty and error messages with a retry button.
 
 ## Current state snapshot
 

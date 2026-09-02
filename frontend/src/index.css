@@ -556,6 +556,43 @@ button.expand-button:hover {
   border-radius: 6px;
 }
 
+.error-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.error-card strong {
+  font-size: 1.1rem;
+}
+
+.retry-button {
+  margin-top: 0.25rem;
+}
+
+.empty-state {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.error-boundary {
+  margin-top: 3rem;
+  text-align: center;
+}
+
+.error-boundary h2 {
+  color: #c62828;
+  margin: 0 0 0.5rem;
+}
+
+.error-boundary p {
+  color: #455a64;
+  margin: 0 0 1rem;
+}
+
 /* Skeleton loading */
 .skeleton-card {
   pointer-events: none;
@@ -735,6 +772,14 @@ html[data-theme="dark"] .description,
 html[data-theme="dark"] .recent-label,
 html[data-theme="dark"] .modal-body .description,
 html[data-theme="dark"] .modal-close {
+  color: #b0bec5;
+}
+
+html[data-theme="dark"] .error-boundary h2 {
+  color: #ef9a9a;
+}
+
+html[data-theme="dark"] .error-boundary p {
   color: #b0bec5;
 }
 
