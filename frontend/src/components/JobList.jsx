@@ -16,7 +16,20 @@ function SkeletonCard() {
   )
 }
 
-function JobList({ jobs, loading, loadingMore, error, hasMore, onLoadMore, onSelectJob }) {
+function JobList({
+  jobs,
+  loading,
+  loadingMore,
+  error,
+  hasMore,
+  onLoadMore,
+  onSelectJob,
+  favorites,
+  hidden,
+  viewMode,
+  onToggleFavorite,
+  onToggleHidden,
+}) {
   if (loading) {
     return (
       <section className="job-list" aria-label="Loading jobs">
@@ -37,23 +50,46 @@ function JobList({ jobs, loading, loadingMore, error, hasMore, onLoadMore, onSel
     )
   }
 
-  if (!jobs || jobs.length === 0) {
-    return <p className="status">No jobs found yet. Run a search above.</p>
+  const hiddenSet = new Set(hidden)
+  const favoriteSet = new Set(favorites)
+  const visibleJobs = jobs.filter((job) => {
+    if (hiddenSet.has(job.id)) return false
+    if (viewMode === 'favorites') return favoriteSet.has(job.id)
+    return true
+  })
+
+  if (!visibleJobs.length) {
+    return (
+      <p className="status">
+        {viewMode === 'favorites'
+          ? 'No saved jobs in this set. Save jobs from the results.'
+          : 'No jobs found yet. Run a search above.'}
+      </p>
+    )
   }
 
   return (
     <section className="job-list">
-      {jobs.map((job) => (
-        <JobCard key={job.id} job={job} onSelect={onSelectJob} />
+      {visibleJobs.map((job) => (
+        <JobCard
+          key={job.id}
+          job={job}
+          onSelect={onSelectJob}
+          isFavorite={favoriteSet.has(job.id)}
+          onToggleFavorite={onToggleFavorite}
+          onToggleHidden={onToggleHidden}
+        />
       ))}
-      {hasMore && (
+      {hasMore && viewMode !== 'favorites' && (
         <div className="load-more">
           <button onClick={onLoadMore} disabled={loadingMore} className="load-more-button">
             {loadingMore ? 'Loading more…' : 'Load more jobs'}
           </button>
         </div>
       )}
-      {!hasMore && !loadingMore && <p className="status end-of-results">No more jobs.</p>}
+      {!hasMore && !loadingMore && viewMode !== 'favorites' && (
+        <p className="status end-of-results">No more jobs.</p>
+      )}
     </section>
   )
 }

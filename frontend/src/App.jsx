@@ -9,6 +9,7 @@ import {
   loadRecentSearches,
   serializeFilters,
 } from './utils/filters'
+import { clearHidden, loadFavorites, loadHidden, toggleFavorite, toggleHidden } from './utils/prefs'
 
 const PAGE_SIZE = 25
 
@@ -27,6 +28,9 @@ function App() {
   const [selectedJob, setSelectedJob] = useState(null)
   const [selectedJobLoading, setSelectedJobLoading] = useState(false)
   const [selectedJobError, setSelectedJobError] = useState(null)
+  const [favorites, setFavorites] = useState(() => loadFavorites())
+  const [hidden, setHidden] = useState(() => loadHidden())
+  const [viewMode, setViewMode] = useState('all')
 
   useEffect(() => {
     listSources()
@@ -108,6 +112,7 @@ function App() {
     updateUrl(params)
     setInitialParams(params)
     setRecentSearches((prev) => addRecentSearch(prev, params))
+    setViewMode('all')
     await fetchJobs(params, { scrape: true })
   }
 
@@ -119,6 +124,16 @@ function App() {
 
   const handleSelectJob = (id) => setSelectedJobId(id)
   const handleCloseDetail = () => setSelectedJobId(null)
+
+  const handleToggleFavorite = (id) => setFavorites((prev) => toggleFavorite(prev, id))
+  const handleToggleHidden = (id) => setHidden((prev) => toggleHidden(prev, id))
+  const handleClearHidden = () => setHidden(clearHidden())
+
+  const visibleCount = jobs.filter((job) => {
+    if (hidden.includes(job.id)) return false
+    if (viewMode === 'favorites') return favorites.includes(job.id)
+    return true
+  }).length
 
   return (
     <div className="container">
@@ -139,10 +154,28 @@ function App() {
 
       <section className="card">
         <div className="results-header">
-          <h2>Jobs ({jobs.length})</h2>
-          {lastSearch && !loading && (
-            <button onClick={() => handleSearch(lastSearch)}>Refresh</button>
-          )}
+          <h2>
+            {viewMode === 'favorites' ? 'Saved jobs' : 'Jobs'} ({visibleCount})
+          </h2>
+          <div className="results-actions">
+            <select
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value)}
+              className="view-mode-select"
+              aria-label="View mode"
+            >
+              <option value="all">All jobs</option>
+              <option value="favorites">Saved jobs</option>
+            </select>
+            {hidden.length > 0 && (
+              <button onClick={handleClearHidden} className="clear-hidden-button">
+                Show {hidden.length} hidden
+              </button>
+            )}
+            {lastSearch && !loading && (
+              <button onClick={() => handleSearch(lastSearch)}>Refresh</button>
+            )}
+          </div>
         </div>
         <JobList
           jobs={jobs}
@@ -152,6 +185,11 @@ function App() {
           hasMore={hasMore}
           onLoadMore={handleLoadMore}
           onSelectJob={handleSelectJob}
+          favorites={favorites}
+          hidden={hidden}
+          viewMode={viewMode}
+          onToggleFavorite={handleToggleFavorite}
+          onToggleHidden={handleToggleHidden}
         />
       </section>
 

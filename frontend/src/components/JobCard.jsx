@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { formatDate, formatPay, stripHtml } from '../utils/format'
 
-function JobCard({ job, onSelect }) {
+function JobCard({ job, onSelect, isFavorite, onToggleFavorite, onToggleHidden }) {
   const [expanded, setExpanded] = useState(false)
 
   const salary = formatPay(job)
@@ -50,6 +50,29 @@ function JobCard({ job, onSelect }) {
         )}
         {salary && <span className="badge badge--salary">{salary}</span>}
         {posted && <span className="badge badge--posted">Posted {posted}</span>}
+      </div>
+
+      <div className="job-actions">
+        <button
+          type="button"
+          className={`action-button ${isFavorite ? 'action-button--active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFavorite?.(job.id)
+          }}
+        >
+          {isFavorite ? 'Saved' : 'Save'}
+        </button>
+        <button
+          type="button"
+          className="action-button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleHidden?.(job.id)
+          }}
+        >
+          Hide
+        </button>
       </div>
 
       {job.description && (
