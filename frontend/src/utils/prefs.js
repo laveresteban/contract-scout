@@ -1,5 +1,6 @@
 const FAVORITES_KEY = 'contract-scout:favorites'
 const HIDDEN_KEY = 'contract-scout:hidden'
+const LAST_VISIT_KEY = 'contract-scout:last-visit'
 
 function readIds(key) {
   try {
@@ -68,6 +69,23 @@ export function loadTheme() {
 export function saveTheme(theme) {
   try {
     localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    // ignore
+  }
+}
+
+export function loadLastVisit() {
+  try {
+    const raw = localStorage.getItem(LAST_VISIT_KEY)
+    return raw ? new Date(parseInt(raw, 10)) : null
+  } catch {
+    return null
+  }
+}
+
+export function saveLastVisit(timestamp = Date.now()) {
+  try {
+    localStorage.setItem(LAST_VISIT_KEY, String(timestamp))
   } catch {
     // ignore
   }

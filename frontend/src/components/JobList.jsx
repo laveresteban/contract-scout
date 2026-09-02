@@ -27,6 +27,7 @@ function JobList({
   onRetry,
   favorites,
   hidden,
+  lastVisit,
   viewMode,
   onToggleFavorite,
   onToggleHidden,
@@ -57,6 +58,10 @@ function JobList({
 
   const hiddenSet = new Set(hidden)
   const favoriteSet = new Set(favorites)
+  const isNew = (job) => {
+    if (!lastVisit || !job.date_scraped) return false
+    return new Date(job.date_scraped) > lastVisit
+  }
   const visibleJobs = jobs.filter((job) => {
     if (hiddenSet.has(job.id)) return false
     if (viewMode === 'favorites') return favoriteSet.has(job.id)
@@ -81,6 +86,7 @@ function JobList({
           job={job}
           onSelect={onSelectJob}
           isFavorite={favoriteSet.has(job.id)}
+          isNew={isNew(job)}
           onToggleFavorite={onToggleFavorite}
           onToggleHidden={onToggleHidden}
         />

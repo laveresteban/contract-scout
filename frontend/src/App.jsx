@@ -13,7 +13,17 @@ import {
   serializeFilters,
 } from './utils/filters'
 import { downloadFile, jobsToCsv } from './utils/export'
-import { clearHidden, loadFavorites, loadHidden, loadTheme, saveTheme, toggleFavorite, toggleHidden } from './utils/prefs'
+import {
+  clearHidden,
+  loadFavorites,
+  loadHidden,
+  loadLastVisit,
+  loadTheme,
+  saveLastVisit,
+  saveTheme,
+  toggleFavorite,
+  toggleHidden,
+} from './utils/prefs'
 
 const PAGE_SIZE = 25
 
@@ -36,6 +46,7 @@ function App() {
   const [hidden, setHidden] = useState(() => loadHidden())
   const [viewMode, setViewMode] = useState('all')
   const [theme, setTheme] = useState(() => loadTheme())
+  const [lastVisit] = useState(() => loadLastVisit())
   const [toasts, setToasts] = useState([])
   const toastIdRef = useRef(0)
 
@@ -43,6 +54,12 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme)
     saveTheme(theme)
   }, [theme])
+
+  useEffect(() => {
+    const onBeforeUnload = () => saveLastVisit(Date.now())
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   useEffect(() => {
     listSources()
@@ -295,6 +312,7 @@ function App() {
           onRetry={handleRetry}
           favorites={favorites}
           hidden={hidden}
+          lastVisit={lastVisit}
           viewMode={viewMode}
           onToggleFavorite={handleToggleFavorite}
           onToggleHidden={handleToggleHidden}

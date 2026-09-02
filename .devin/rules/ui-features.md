@@ -22,6 +22,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Company filter / autocomplete** — `SearchFilters` has a Company input with an autocomplete dropdown built from the current results; `App` derives unique companies from `jobs` and passes `company` to the backend.
 - **Pay insights** — `App` shows a `PayInsights` panel above results with pay range, average, primary interval, and a 5-bucket histogram for the currently visible jobs.
 - **Keyboard shortcuts** — `Ctrl/Cmd + K` and `/` focus the search input when not already in an editable field.
+- **Highlight new jobs** — `App` loads the last-visit timestamp from `localStorage`, saves it on `beforeunload`, and `JobCard` shows a New badge for jobs scraped after that timestamp.
 
 ## Current state snapshot
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { formatDate, formatPay, stripHtml } from '../utils/format'
 
-function JobCard({ job, onSelect, isFavorite, onToggleFavorite, onToggleHidden }) {
+function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleHidden }) {
   const [expanded, setExpanded] = useState(false)
 
   const salary = formatPay(job)
@@ -42,6 +42,7 @@ function JobCard({ job, onSelect, isFavorite, onToggleFavorite, onToggleHidden }
       </div>
 
       <div className="job-badges">
+        {isNew && <span className="badge badge--new">New</span>}
         <span className="badge badge--source">{job.site}</span>
         {job.is_remote && <span className="badge badge--remote">Remote</span>}
         {job.job_type && <span className="badge badge--type">{job.job_type}</span>}
