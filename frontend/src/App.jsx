@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
 import JobDetail from './components/JobDetail'
@@ -9,6 +9,7 @@ import {
   loadRecentSearches,
   serializeFilters,
 } from './utils/filters'
+import { downloadFile, jobsToCsv } from './utils/export'
 import { clearHidden, loadFavorites, loadHidden, toggleFavorite, toggleHidden } from './utils/prefs'
 
 const PAGE_SIZE = 25
@@ -57,6 +58,17 @@ function App() {
       .catch((err) => setSelectedJobError(err.message || 'Could not load job details.'))
       .finally(() => setSelectedJobLoading(false))
   }, [selectedJobId])
+
+  const hiddenSet = useMemo(() => new Set(hidden), [hidden])
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites])
+
+  const visibleJobs = useMemo(() => {
+    return jobs.filter((job) => {
+      if (hiddenSet.has(job.id)) return false
+      if (viewMode === 'favorites') return favoriteSet.has(job.id)
+      return true
+    })
+  }, [jobs, hiddenSet, favoriteSet, viewMode])
 
   const updateUrl = (params) => {
     const qs = serializeFilters(params)
@@ -129,11 +141,29 @@ function App() {
   const handleToggleHidden = (id) => setHidden((prev) => toggleHidden(prev, id))
   const handleClearHidden = () => setHidden(clearHidden())
 
-  const visibleCount = jobs.filter((job) => {
-    if (hidden.includes(job.id)) return false
-    if (viewMode === 'favorites') return favorites.includes(job.id)
-    return true
-  }).length
+  const handleExportCsv = () => {
+    const csv = jobsToCsv(visibleJobs)
+    downloadFile(csv, `contract-scout-jobs-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv')
+  }
+
+  const handleExportJson = () => {
+    const json = JSON.stringify(visibleJobs, null, 2)
+    downloadFile(json, `contract-scout-jobs-${new Date().toISOString().slice(0, 10)}.json`, 'application/json')
+  }
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+    } catch {
+      // fallback for older browsers
+      const input = document.createElement('input')
+      input.value = window.location.href
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      document.body.removeChild(input)
+    }
+  }
 
   return (
     <div className="container">
@@ -155,7 +185,7 @@ function App() {
       <section className="card">
         <div className="results-header">
           <h2>
-            {viewMode === 'favorites' ? 'Saved jobs' : 'Jobs'} ({visibleCount})
+            {viewMode === 'favorites' ? 'Saved jobs' : 'Jobs'} ({visibleJobs.length})
           </h2>
           <div className="results-actions">
             <select
@@ -172,6 +202,19 @@ function App() {
                 Show {hidden.length} hidden
               </button>
             )}
+            {jobs.length > 0 && (
+              <>
+                <button onClick={handleExportCsv} className="export-button" title="Export CSV">
+                  CSV
+                </button>
+                <button onClick={handleExportJson} className="export-button" title="Export JSON">
+                  JSON
+                </button>
+              </>
+            )}
+            <button onClick={handleCopyLink} className="copy-link-button" title="Copy search link">
+              Copy link
+            </button>
             {lastSearch && !loading && (
               <button onClick={() => handleSearch(lastSearch)}>Refresh</button>
             )}

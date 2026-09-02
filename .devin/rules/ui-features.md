@@ -11,6 +11,8 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **URL-synced filters + recent searches** — `SearchFilters` and `App` now read/write the URL query string and persist/recall recent searches in `localStorage`.
 - **Pagination / "Load more"** — `App` and `JobList` use the backend `limit`/`offset` params with a "Load more" button.
 - **Job detail modal** — `JobCard` is clickable and opens a `JobDetail` modal with full description, badges, and apply link.
+- **Save/hide jobs** — `JobCard` has Save and Hide actions; saved/hidden IDs are persisted in `localStorage` and filterable via a view mode.
+- **Export and copy search link** — Results header has CSV, JSON, and copy-link buttons.
 
 ## Current state snapshot
 
