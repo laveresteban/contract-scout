@@ -44,6 +44,7 @@ function paramsToState(params) {
 
 function SearchFilters({
   onSearch,
+  onQueryChange,
   onShowToast,
   loading,
   sources = [],
@@ -68,6 +69,7 @@ function SearchFilters({
   const [highlightedCompany, setHighlightedCompany] = useState(-1)
   const companyInputRef = useRef(null)
   const queryInputRef = useRef(null)
+  const queryDebounceRef = useRef(null)
 
   useEffect(() => {
     const next = paramsToState(initialParams ?? DEFAULT_FILTER_VALUES)
@@ -83,6 +85,14 @@ function SearchFilters({
     setSortBy(next.sortBy)
     setSortOrder(next.sortOrder)
   }, [initialParams])
+
+  useEffect(() => {
+    return () => {
+      if (queryDebounceRef.current) {
+        clearTimeout(queryDebounceRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -136,15 +146,18 @@ function SearchFilters({
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    cancelQueryDebounce()
     onSearch(buildParams())
   }
 
   const handleReset = () => {
+    cancelQueryDebounce()
     applyState(DEFAULT_FILTER_VALUES)
     onSearch(buildParams())
   }
 
   const handleRecentClick = (entry) => {
+    cancelQueryDebounce()
     applyState(entry.params)
     onSearch(entry.params)
   }
@@ -158,11 +171,13 @@ function SearchFilters({
   }
 
   const handleClearFilter = (filter) => {
+    cancelQueryDebounce()
     onSearch({ ...buildParams(), ...filter.clear })
     onShowToast(`Removed ${filter.label}`)
   }
 
   const handleSavedClick = (entry) => {
+    cancelQueryDebounce()
     applyState(entry.params)
     onSearch(entry.params)
   }
@@ -218,6 +233,13 @@ function SearchFilters({
     }
   }
 
+  const cancelQueryDebounce = () => {
+    if (queryDebounceRef.current) {
+      clearTimeout(queryDebounceRef.current)
+      queryDebounceRef.current = null
+    }
+  }
+
   const sortValue = `${sortBy}:${sortOrder}`
   const sortLabel = SORT_OPTIONS.find((option) => option.value === sortValue)?.label || sortValue
 
@@ -248,7 +270,14 @@ function SearchFilters({
             id="search-query"
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value
+              setQuery(value)
+              cancelQueryDebounce()
+              queryDebounceRef.current = setTimeout(() => {
+                onQueryChange?.({ ...buildParams(), query: value })
+              }, 300)
+            }}
             placeholder="e.g. software engineer"
           />
         </label>

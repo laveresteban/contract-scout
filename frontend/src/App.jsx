@@ -41,6 +41,7 @@ function App() {
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState(null)
+  const fetchIdRef = useRef(0)
   const [selectedJob, setSelectedJob] = useState(null)
   const [selectedJobLoading, setSelectedJobLoading] = useState(false)
   const [selectedJobError, setSelectedJobError] = useState(null)
@@ -137,6 +138,8 @@ function App() {
   }
 
   const fetchJobs = async (params, { scrape = false, append = false } = {}) => {
+    const fetchId = ++fetchIdRef.current
+
     if (append) {
       setLoadingMore(true)
     } else {
@@ -170,6 +173,7 @@ function App() {
         limit: PAGE_SIZE,
         offset: currentOffset,
       })
+      if (fetchId !== fetchIdRef.current) return
       setJobs((prev) => (append ? [...prev, ...fetched] : fetched))
       setHasMore(fetched.length === PAGE_SIZE)
       setOffset(currentOffset + fetched.length)
@@ -197,6 +201,11 @@ function App() {
     if (lastSearch && !loadingMore) {
       fetchJobs(lastSearch, { append: true })
     }
+  }
+
+  const handleQueryChange = (params) => {
+    if (!params.query || params.query.length < 2) return
+    fetchJobs(params, { scrape: false })
   }
 
   const handleRetry = () => {
@@ -267,6 +276,7 @@ function App() {
       <section className="card">
         <SearchFilters
           onSearch={handleSearch}
+          onQueryChange={handleQueryChange}
           onShowToast={showToast}
           loading={loading}
           sources={sources}
