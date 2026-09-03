@@ -26,14 +26,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _parse_query(query):
+    if not query:
+        return "", []
+    parts = query.split()
+    positive = [p for p in parts if not p.startswith("-")]
+    negative = [p[1:] for p in parts if p.startswith("-") and len(p) > 1]
+    return " ".join(positive), negative
+
+
 def _search_orm(query, filters: JobFilterRequest):
-    if filters.query:
-        like = f"%{filters.query}%"
+    positive, negative = _parse_query(filters.query)
+    if positive:
+        like = f"%{positive}%"
         query = query.filter(
             or_(
                 JobORM.title.ilike(like),
                 JobORM.company.ilike(like),
                 JobORM.description.ilike(like),
+            )
+        )
+    for term in negative:
+        neg_like = f"%{term}%"
+        query = query.filter(
+            ~or_(
+                JobORM.title.ilike(neg_like),
+                JobORM.company.ilike(neg_like),
+                JobORM.description.ilike(neg_like),
             )
         )
     if filters.is_remote is not None:
@@ -60,8 +79,9 @@ def _search_orm(query, filters: JobFilterRequest):
 def _sort_orm(query, filters: JobFilterRequest):
     sort_by = (filters.sort_by or "date_posted").lower()
     sort_order = (filters.sort_order or "desc").lower()
-    if sort_by == "relevance" and filters.query:
-        like = f"%{filters.query}%"
+    positive, _ = _parse_query(filters.query)
+    if sort_by == "relevance" and positive:
+        like = f"%{positive}%"
         score = (
             case((JobORM.title.ilike(like), 3), else_=0)
             + case((JobORM.company.ilike(like), 2), else_=0)
@@ -83,9 +103,10 @@ def _sort_orm(query, filters: JobFilterRequest):
 @router.post("/search")
 async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)):
     """Scrape and store jobs based on search criteria."""
+    positive, _ = _parse_query(payload.query)
     sources = payload.sources or ["indeed", "linkedin"]
     major_jobs = scrape_major_boards(
-        search_term=payload.query,
+        search_term=positive or payload.query,
         location=payload.location or "United States",
         is_remote=payload.is_remote,
         job_type=payload.job_type or "contract",
@@ -95,7 +116,7 @@ async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)):
     )
     try:
         remote_jobs = await scrape_remote_boards(
-            search_term=payload.query,
+            search_term=positive or payload.query,
             job_type=payload.job_type or "contract",
             employment_type=payload.employment_type,
             results_wanted=payload.results_wanted,

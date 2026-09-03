@@ -253,3 +253,37 @@ def test_list_jobs_sort_by_relevance(client, db):
     assert data[0]["title"] == "Python Contractor"
     assert data[1]["company"] == "Python Staffing"
     assert data[2]["description"] == "Looking for python experience."
+
+
+def test_list_jobs_negative_keywords(client, db):
+    jobs = [
+        JobORM(
+            id="senior-python",
+            site="indeed",
+            title="Senior Python Contractor",
+            company="Acme",
+            description="Need senior Python help.",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+        ),
+        JobORM(
+            id="junior-python",
+            site="indeed",
+            title="Junior Python Contractor",
+            company="Beta",
+            description="Need junior Python help.",
+            is_remote=True,
+            is_us=True,
+            job_type="contract",
+        ),
+    ]
+    for job in jobs:
+        db.add(job)
+    db.commit()
+
+    response = client.get("/api/v1/jobs?q=python -senior")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == "junior-python"
