@@ -13,6 +13,7 @@ function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleH
   return (
     <article
       className="job-card"
+      aria-label={`${job.title} at ${job.company}`}
       onClick={() => onSelect?.(job.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -61,6 +62,8 @@ function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleH
             e.stopPropagation()
             onToggleFavorite?.(job.id)
           }}
+          aria-pressed={isFavorite}
+          aria-label={isFavorite ? 'Remove from saved jobs' : 'Save job'}
         >
           {isFavorite ? 'Saved' : 'Save'}
         </button>
@@ -71,6 +74,7 @@ function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleH
             e.stopPropagation()
             onToggleHidden?.(job.id)
           }}
+          aria-label="Hide job"
         >
           Hide
         </button>

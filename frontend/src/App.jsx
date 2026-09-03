@@ -52,6 +52,8 @@ function App() {
   const [lastVisit] = useState(() => loadLastVisit())
   const [toasts, setToasts] = useState([])
   const toastIdRef = useRef(0)
+  const [announcement, setAnnouncement] = useState('')
+  const announce = (message) => setAnnouncement(message)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -72,7 +74,7 @@ function App() {
     fetchJobStats()
 
     if (window.location.search) {
-      fetchJobs(deserializeFilters(window.location.search))
+      fetchJobs(deserializeFilters(window.location.search), { shouldAnnounce: false })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -137,7 +139,7 @@ function App() {
     setToasts((prev) => prev.filter((toast) => toast.id !== id))
   }
 
-  const fetchJobs = async (params, { scrape = false, append = false } = {}) => {
+  const fetchJobs = async (params, { scrape = false, append = false, shouldAnnounce = true } = {}) => {
     const fetchId = ++fetchIdRef.current
 
     if (append) {
@@ -148,6 +150,7 @@ function App() {
     }
     setError(null)
     if (!append) setLastSearch(params)
+    if (shouldAnnounce) announce('Loading jobs')
 
     const currentOffset = append ? offset : 0
 
@@ -177,8 +180,21 @@ function App() {
       setJobs((prev) => (append ? [...prev, ...fetched] : fetched))
       setHasMore(fetched.length === PAGE_SIZE)
       setOffset(currentOffset + fetched.length)
+      if (shouldAnnounce) {
+        if (fetched.length === 0) {
+          if (append) {
+            announce('No more jobs')
+          } else {
+            announce('No jobs found for this search')
+          }
+        } else {
+          const total = append ? jobs.length + fetched.length : fetched.length
+          announce(`Loaded ${total} jobs`)
+        }
+      }
     } catch (err) {
       setError(err.message || 'Something went wrong.')
+      if (shouldAnnounce) announce(`Error: ${err.message || 'Something went wrong.'}`)
     } finally {
       if (append) {
         setLoadingMore(false)
@@ -205,7 +221,7 @@ function App() {
 
   const handleQueryChange = (params) => {
     if (!params.query || params.query.length < 2) return
-    fetchJobs(params, { scrape: false })
+    fetchJobs(params, { scrape: false, shouldAnnounce: false })
   }
 
   const handleRetry = () => {
@@ -358,6 +374,10 @@ function App() {
       />
 
       <ToastContainer toasts={toasts} onClose={handleCloseToast} />
+
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
     </div>
   )
 }

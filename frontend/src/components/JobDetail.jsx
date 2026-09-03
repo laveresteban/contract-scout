@@ -1,7 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { formatDate, formatPay } from '../utils/format'
 
 function JobDetail({ job, loading, error, onClose }) {
+  const closeButtonRef = useRef(null)
+
+  useEffect(() => {
+    if (job) {
+      closeButtonRef.current?.focus()
+    }
+  }, [job])
+
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose()
@@ -31,7 +39,13 @@ function JobDetail({ job, loading, error, onClose }) {
           ) : (
             <h2 id="job-detail-title">{job.title}</h2>
           )}
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
             ×
           </button>
         </div>

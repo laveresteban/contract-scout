@@ -34,7 +34,7 @@ function JobList({
 }) {
   if (loading) {
     return (
-      <section className="job-list" aria-label="Loading jobs">
+      <section className="job-list" aria-label="Loading jobs" aria-busy="true" aria-live="polite">
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
@@ -44,7 +44,7 @@ function JobList({
 
   if (error) {
     return (
-      <div className="status error error-card">
+      <div className="status error error-card" role="alert">
         <strong>Could not load jobs.</strong>
         <p>{error}</p>
         {onRetry && (
@@ -75,11 +75,11 @@ function JobList({
     } else if (jobs.length > 0) {
       message = 'No jobs match the current filters. Try adjusting your search.'
     }
-    return <p className="status empty-state">{message}</p>
+    return <p className="status empty-state" role="status">{message}</p>
   }
 
   return (
-    <section className="job-list">
+    <section className="job-list" aria-label="Job results" aria-live="polite">
       {visibleJobs.map((job) => (
         <JobCard
           key={job.id}

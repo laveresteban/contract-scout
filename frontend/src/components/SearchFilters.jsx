@@ -361,6 +361,7 @@ function SearchFilters({
             autoComplete="off"
             aria-autocomplete="list"
             aria-controls="company-suggestions"
+            aria-expanded={showCompanySuggestions && companySuggestions.length > 0}
             aria-activedescendant={
               highlightedCompany >= 0 ? `company-suggestion-${highlightedCompany}` : undefined
             }
