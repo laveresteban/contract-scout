@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react'
-import { formatDate, formatPay, stripHtml } from '../utils/format'
+import { eligibilityLabel, formatAnnualPay, formatDate, formatPay, stripHtml } from '../utils/format'
 
-function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleHidden }) {
+function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite, onToggleHidden }) {
   const [expanded, setExpanded] = useState(false)
 
-  const salary = formatPay(job)
+  const rawPay = formatPay(job)
+  const annualPay = formatAnnualPay(job)
+  // Show the raw rate only when it adds something beyond the yearly-equiv headline.
+  const rawIsDistinct = rawPay && job.interval && job.interval !== 'yearly'
+  const eligibility = eligibilityLabel(job)
   const posted = formatDate(job.date_posted)
   const applyUrl = job.job_url_direct || job.job_url
   const descriptionText = useMemo(() => stripHtml(job.description), [job.description])
@@ -12,7 +16,7 @@ function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleH
 
   return (
     <article
-      className="job-card"
+      className={`job-card${isViewed ? ' job-card--viewed' : ''}`}
       aria-label={`${job.title} at ${job.company}`}
       onClick={() => onSelect?.(job.id)}
       onKeyDown={(e) => {
@@ -25,32 +29,35 @@ function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleH
       tabIndex={0}
     >
       <div className="job-header">
-        <h3>{job.title}</h3>
-        <a
-          className="apply-link"
-          href={applyUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          View job
-        </a>
-      </div>
-
-      <div className="job-subtitle">
-        <span className="company">{job.company}</span>
-        {job.location && <span className="location">{job.location}</span>}
+        <div className="job-header__main">
+          <h3>{job.title}</h3>
+          <div className="job-subtitle">
+            <span className="company">{job.company}</span>
+            {job.location && <span className="location">{job.location}</span>}
+          </div>
+        </div>
+        <div className="job-header__pay">
+          {annualPay ? (
+            <>
+              <span className="comp-amount" title="Approximate yearly USD equivalent">{annualPay}</span>
+              {rawIsDistinct && <span className="comp-raw">{rawPay}</span>}
+            </>
+          ) : (
+            <span className="comp-amount comp-amount--muted">Pay undisclosed</span>
+          )}
+        </div>
       </div>
 
       <div className="job-badges">
         {isNew && <span className="badge badge--new">New</span>}
+        {isViewed && <span className="badge badge--viewed">Viewed</span>}
         <span className="badge badge--source">{job.site}</span>
         {job.is_remote && <span className="badge badge--remote">Remote</span>}
+        {eligibility && <span className={`badge badge--eligibility badge--elig-${job.eligibility}`}>{eligibility}</span>}
         {job.job_type && <span className="badge badge--type">{job.job_type}</span>}
         {job.employment_type && (
           <span className="badge badge--employment">{job.employment_type.toUpperCase()}</span>
         )}
-        {salary && <span className="badge badge--salary">{salary}</span>}
         {posted && <span className="badge badge--posted">Posted {posted}</span>}
       </div>
 
@@ -78,6 +85,17 @@ function JobCard({ job, onSelect, isFavorite, isNew, onToggleFavorite, onToggleH
         >
           Hide
         </button>
+        {applyUrl && (
+          <a
+            className="apply-link"
+            href={applyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            View job →
+          </a>
+        )}
       </div>
 
       {job.description && (

@@ -5,7 +5,7 @@ A web app that helps software engineers and tech professionals find **remote, US
 ## Tech stack
 
 - **Backend:** Python [FastAPI](https://fastapi.tiangolo.com/) + SQLAlchemy (SQLite)
-- **Scraping:** [JobSpy](https://github.com/speedyapply/JobSpy) for major boards + public JSON/RSS feeds for remote-first boards
+- **Scraping:** [JobSpy](https://github.com/speedyapply/JobSpy) for major boards + public JSON/RSS feeds for remote-first boards, with a [Playwright](https://playwright.dev/python/) headless-browser fallback for JS-gated / bot-protected boards
 - **Frontend:** [React](https://react.dev/) + [Vite](https://vitejs.dev/)
 
 ## Research: why JobSpy + public feeds?
@@ -15,12 +15,13 @@ Before building, I evaluated several MCP servers and scraping approaches. For a 
 | Tool / Approach | Best for | Why included / not included |
 | --- | --- | --- |
 | **JobSpy (python-jobspy)** | Scraping LinkedIn, Indeed, ZipRecruiter, Google, Glassdoor concurrently | Has native `job_type='contract'`, `is_remote=True`, and `country_indeed='USA'` filters. Returns a clean DataFrame with salary, company, title, etc. |
-| **Public JSON/RSS feeds** | Remote-first boards (RemoteOK, We Work Remotely, Jobicy, Remotive) | RemoteOK, We Work Remotely, Jobicy, and Remotive all publish free, public feeds. Faster and more reliable than browser automation, and avoids the ToS/robots issues of scraping their HTML. |
+| **Public JSON/RSS feeds** | Remote-first boards (RemoteOK, We Work Remotely, Jobicy, Remotive, Himalayas) | These boards all publish free, public feeds. Faster and more reliable than browser automation, and avoids the ToS/robots issues of scraping their HTML. |
+| **Himalayas public API** | High-volume remote board with structured salary + location data | `https://himalayas.app/jobs/api` returns structured `employmentType`, `minSalary`/`maxSalary`, `salaryPeriod`, `currency`, and `locationRestrictions` fields, which map cleanly onto our schema and give strong US-eligibility signals. Paged with cursor pagination and filtered by keyword locally. |
 | **Apify remote-jobs-feed** | Pre-aggregated remote feed | Excellent as an external data source, but costs Apify credits. Can be added later via the `apify-client` dependency. |
 | **JobPilot / JobSpy MCP / LinkedIn-Job-Scraper-MCP** | Claude Desktop / MCP clients | These are MCP servers, not web app backends. They are useful for AI assistants, but we need a direct API for the web app. |
-| **mcp-playwright-browser** | AI-driven browser control | Overkill for a focused job search; public feeds and httpx are simpler and cheaper. |
+| **Playwright headless browser** | Fallback for JS-gated / bot-protected boards (e.g. Dice) | Boards like Dice render results through a JS framework and intermittently bot-block raw HTTP clients. When the fast httpx path returns nothing, `app/browser_scraper.py` renders the page in a real headless browser and the existing parser consumes the same embedded job data. Playwright is an **optional** dependency; if it (or its browser binaries) are absent, the fallback is a graceful no-op. |
 
-The current implementation uses **JobSpy for major boards** and **public feeds for remote-first boards**. More sources can be added by extending `app/scraper.py`.
+The current implementation uses **JobSpy for major boards**, **public feeds for remote-first boards** (including Himalayas), and a **Playwright browser fallback** for boards that block plain HTTP requests. More sources can be added by extending `app/scraper.py`.
 
 ## Features
 
@@ -94,8 +95,13 @@ source venv/bin/activate
 
 pip install -r requirements.txt
 
+# Optional: install the Chromium binary used by the Playwright browser
+# fallback for JS-gated boards (Dice). Skipping this leaves the fallback a
+# graceful no-op; the httpx path still works.
+python -m playwright install chromium
+
 # Run the server
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8001
 ```
 
 ### 3. Frontend
@@ -123,7 +129,7 @@ docker-compose up --build
 ```
 
 This starts:
-- Backend on [http://localhost:8000](http://localhost:8000)
+- Backend on [http://localhost:8001](http://localhost:8001)
 - Frontend on [http://localhost](http://localhost)
 
 The frontend Nginx config proxies `/api/*` calls to the backend service.
@@ -156,6 +162,21 @@ SCRAPER_HOURS_OLD=168
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 APIFY_API_TOKEN=your-apify-token
 APIFY_ACTOR_ID=hyperbach/remote-jobs-feed
+DEFAULT_SCRAPE_SOURCES=indeed,linkedin,remoteok,weworkremotely,jobicy,remotive,dice,himalayas,apify
+CAREERJET_API_KEY=your-careerjet-key
+WORKABLE_FEED_URL=https://www.workable.com/boards/workable.xml
+GREENHOUSE_BOARDS=company-one,company-two
+LEVER_BOARDS=company-one,company-two
+ASHBY_BOARDS=company-one,company-two
+SMARTRECRUITERS_BOARDS=company-one,company-two
+RECRUITEE_BOARDS=company-one,company-two
+JOOBLE_API_KEY=your-jooble-key
+ADZUNA_APP_ID=your-adzuna-app-id
+ADZUNA_APP_KEY=your-adzuna-app-key
+USAJOBS_API_KEY=your-usajobs-key
+USAJOBS_EMAIL=you@example.com
+UPWORK_API_TOKEN=your-upwork-oauth-token
+UPWORK_GRAPHQL_URL=https://api.upwork.com/graphql
 ```
 
 ## API reference

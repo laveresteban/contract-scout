@@ -16,7 +16,7 @@ The following are standard, non-destructive commands for this repo. You may run 
 - `cd backend && python -m venv venv`
 - `cd backend && venv\Scripts\activate` (Windows)
 - `cd backend && pip install -r requirements.txt`
-- `cd backend && uvicorn app.main:app --reload --port 8000`
+- `cd backend && uvicorn app.main:app --reload --port 8001`
 - `cd backend && pytest`
 
 ### Frontend

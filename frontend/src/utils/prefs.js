@@ -1,5 +1,6 @@
 const FAVORITES_KEY = 'contract-scout:favorites'
 const HIDDEN_KEY = 'contract-scout:hidden'
+const VIEWED_KEY = 'contract-scout:viewed'
 const LAST_VISIT_KEY = 'contract-scout:last-visit'
 
 function readIds(key) {
@@ -54,6 +55,21 @@ export function toggleHidden(ids, id) {
 export function clearHidden() {
   saveHidden([])
   return []
+}
+
+export function loadViewed() {
+  return readIds(VIEWED_KEY)
+}
+
+export function saveViewed(ids) {
+  writeIds(VIEWED_KEY, ids)
+}
+
+export function addViewed(ids, id) {
+  if (ids.includes(id)) return ids
+  const next = [...ids, id]
+  saveViewed(next)
+  return next
 }
 
 const THEME_KEY = 'contract-scout:theme'

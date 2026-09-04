@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import html
 import json
 import logging
 import re
@@ -17,10 +18,26 @@ from app.models import Job, JobORM
 logger = logging.getLogger(__name__)
 
 
-MAJOR_SOURCES = ["indeed", "linkedin", "zip_recruiter", "google"]
-REMOTE_SOURCES = ["remoteok", "weworkremotely", "jobicy", "remotive"]
+MAJOR_SOURCES = ["indeed", "linkedin", "glassdoor", "zip_recruiter", "google"]
+REMOTE_SOURCES = ["remoteok", "weworkremotely", "jobicy", "remotive", "himalayas"]
+DICE_SOURCE = "dice"
 APIFY_SOURCE = "apify"
-ALL_SOURCES = MAJOR_SOURCES + REMOTE_SOURCES + [APIFY_SOURCE]
+PROVIDER_SOURCES = [
+    "careerjet",
+    "workable",
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "recruitee",
+    "jooble",
+    "adzuna",
+    "hackernews",
+    "usajobs",
+    "upwork",
+]
+BUILTIN_ASYNC_SOURCES = REMOTE_SOURCES + [DICE_SOURCE, APIFY_SOURCE]
+ALL_SOURCES = MAJOR_SOURCES + BUILTIN_ASYNC_SOURCES + PROVIDER_SOURCES
 
 
 # Try to import jobspy; it is an optional dependency for major boards.
@@ -45,6 +62,8 @@ except ImportError:
 
 
 import httpx
+
+from app.browser_scraper import fetch_rendered
 
 
 US_PATTERNS = [
@@ -90,6 +109,18 @@ CONTRACT_ROLE_PATTERNS = [
     re.compile(r"\bcontingent\b.{0,80}\b(?:contract\s+award|customer\s+funding)\b", re.DOTALL),
     re.compile(r"\bcontingent\s+upon\s+contract\s+award\b"),
     re.compile(r"\bposition\s+contingent\s+upon\s+contract\s+award\b"),
+]
+
+# Explicit "W2 only" signals. These also cover phrasing that rules out other
+# arrangements ("no C2C", "no 1099"), which in practice means a W2 engagement.
+W2_ONLY_PATTERNS = [
+    re.compile(r"\bw-?2\s+(?:only|candidates?|contract(?:ors?)?|position|role|employees?|basis|hourly)\b"),
+    re.compile(r"\bonly\s+w-?2\b"),
+    re.compile(r"\bmust\s+be\s+(?:on\s+|able\s+to\s+work\s+on\s+)?w-?2\b"),
+    re.compile(r"\bno\s+c2c\b"),
+    re.compile(r"\bno\s+corp[- ]to[- ]corp\b"),
+    re.compile(r"\bno\s+1099\b"),
+    re.compile(r"\bw-?2\s+(?:candidates?\s+)?only\b"),
 ]
 
 # Strong full-time / employee role indicators.
@@ -213,11 +244,15 @@ def _detect_employment_type(description: str | None, title: str | None) -> str |
     """Infer employment type from text: w2, 1099, c2c, contract."""
     text = " ".join([description or "", title or ""]).lower()
 
+    # Explicit "W2 only" / "no C2C" / "no 1099" phrasing wins, since it would
+    # otherwise be misread by the plain c2c / 1099 substring checks below.
+    if any(p.search(text) for p in W2_ONLY_PATTERNS):
+        return "w2"
     if re.search(r"\bc2c\b|corp[- ]to[- ]corp", text):
         return "c2c"
     if re.search(r"\b1099\b|independent contractor", text):
         return "1099"
-    if re.search(r"\bw2\b|w-2|full[- ]time employee|employee position", text):
+    if re.search(r"\bw-?2\b|full[- ]time employee|employee position", text):
         return "w2"
     if _text_indicates_contract_role(text):
         return "contract"
@@ -423,12 +458,26 @@ def scrape_major_boards(
             for word in ("contract", "freelance", "1099", "c2c", "corp-to-corp")
         )
         terms = [search_term] if has_contract_term else []
-        if "freelance" not in base and "contract" not in base:
-            terms.append(f"freelance {search_term}")
-        if "1099" not in base:
-            terms.append(f"{search_term} 1099")
-        if "c2c" not in base and "corp-to-corp" not in base:
-            terms.append(f"{search_term} c2c")
+        et = (employment_type or "").lower()
+        if et == "w2":
+            # W2 contract roles use very specific phrasing; target it directly
+            # and lead with it so it isn't crowded out by the per-term quota.
+            terms.insert(0, f"{search_term} w2 contract")
+            terms.append(f"w2 contract {search_term}")
+        elif et == "1099":
+            terms.insert(0, f"{search_term} 1099")
+        elif et == "c2c":
+            terms.insert(0, f"{search_term} c2c")
+        else:
+            # No specific engagement requested: cast a wide contract net.
+            if "freelance" not in base and "contract" not in base:
+                terms.append(f"freelance {search_term}")
+            if "1099" not in base:
+                terms.append(f"{search_term} 1099")
+            if "c2c" not in base and "corp-to-corp" not in base:
+                terms.append(f"{search_term} c2c")
+        if not terms:
+            terms.append(f"contract {search_term}")
         # Remove duplicates while preserving order.
         seen_terms = set()
         terms = [t for t in terms if not (t.lower() in seen_terms or seen_terms.add(t.lower()))]
@@ -1024,6 +1073,190 @@ async def _scrape_remotive(
     return jobs
 
 
+def _map_himalayas_employment_type(value: str | None) -> str | None:
+    """Map Himalayas' employmentType label to our job_type vocabulary."""
+    if not value:
+        return None
+    v = str(value).lower()
+    if "contract" in v or "freelance" in v or "temporary" in v:
+        return "contract"
+    if "full" in v:
+        return "fulltime"
+    if "part" in v:
+        return "parttime"
+    if "intern" in v:
+        return "internship"
+    return None
+
+
+def _himalayas_is_us(location_restrictions: list, description: str, title: str) -> tuple[bool, bool]:
+    """Himalayas jobs are remote; decide US eligibility from its location list."""
+    locations = [str(loc) for loc in (location_restrictions or [])]
+    # No restriction listed means the role is open worldwide -> US-eligible.
+    if not locations:
+        return True, True
+    joined = " ".join(locations).lower()
+    has_us = any(p.search(joined) for p in US_PATTERNS) or "worldwide" in joined or "anywhere" in joined
+    has_non_us = any(p.search(joined) for p in NON_US_PATTERNS)
+    if has_us:
+        return True, True
+    if has_non_us:
+        return True, False
+    # An unrecognized restriction (e.g. a single non-listed country) is treated
+    # as not US-eligible to avoid surfacing region-locked roles.
+    return True, False
+
+
+def _build_himalayas_job(
+    item: dict,
+    job_type: str | None = None,
+    employment_type: str | None = None,
+) -> Job | None:
+    """Build a Job from a Himalayas public API record."""
+    title = html.unescape((item.get("title") or "").strip())
+    if not title:
+        return None
+
+    company = html.unescape((item.get("companyName") or "Unknown").strip())
+    location_restrictions = item.get("locationRestrictions") or []
+    is_remote, is_us = _himalayas_is_us(
+        location_restrictions, str(item.get("description") or ""), title
+    )
+    location = ", ".join(str(loc) for loc in location_restrictions) or "Remote"
+
+    description = str(item.get("description") or item.get("excerpt") or "")
+    description = html.unescape(re.sub(r"<[^>]+>", " ", description))
+    description = re.sub(r"\s+", " ", description).strip()
+
+    text = f"{title} {description}".lower()
+
+    inferred_job_type = _map_himalayas_employment_type(item.get("employmentType"))
+    if _text_indicates_contract_role(text):
+        if not inferred_job_type:
+            inferred_job_type = "contract"
+        inferred_employment_type = _detect_employment_type(description, title) or "contract"
+    elif inferred_job_type == "contract":
+        inferred_employment_type = _detect_employment_type(description, title) or "contract"
+    else:
+        inferred_employment_type = _detect_employment_type(description, title)
+
+    if not _matches_job_request(
+        Job(
+            id="",
+            site="himalayas",
+            title=title,
+            company=company,
+            job_type=inferred_job_type,
+            employment_type=inferred_employment_type,
+            is_remote=is_remote,
+            is_us=is_us,
+        ),
+        job_type,
+        employment_type,
+    ):
+        return None
+
+    min_amount = _parse_amount(item.get("minSalary"))
+    max_amount = _parse_amount(item.get("maxSalary"))
+    period = (item.get("salaryPeriod") or "").lower()
+    if "hour" in period:
+        interval = "hourly"
+    elif "month" in period:
+        interval = "monthly"
+    elif period:
+        interval = "yearly"  # "annual"
+    elif min_amount is not None or max_amount is not None:
+        interval = _infer_interval_from_amounts(min_amount, max_amount)
+    else:
+        interval = None
+
+    job_url = item.get("applicationLink") or item.get("guid") or ""
+    raw_id = item.get("guid") or job_url or title
+    return Job(
+        id=f"himalayas-{hashlib.md5(str(raw_id).encode()).hexdigest()[:16]}",
+        site="himalayas",
+        title=title,
+        company=company,
+        location=location,
+        job_url=job_url,
+        description=description,
+        job_type=inferred_job_type,
+        employment_type=inferred_employment_type,
+        interval=interval,
+        min_amount=min_amount,
+        max_amount=max_amount,
+        currency=(item.get("currency") or ("USD" if min_amount or max_amount else None)),
+        is_remote=is_remote,
+        is_us=is_us,
+        date_posted=_parse_iso_date(item.get("pubDate")),
+        date_scraped=datetime.utcnow(),
+    )
+
+
+async def _scrape_himalayas(
+    client: httpx.AsyncClient,
+    search_term: str,
+    job_type: str | None,
+    employment_type: str | None,
+    results_wanted: int,
+) -> list[Job]:
+    """Fetch remote jobs from the Himalayas public API.
+
+    Himalayas has no server-side keyword search, so we page through its feed
+    (newest first) with cursor pagination and filter by keyword locally, the
+    same approach used for RemoteOK and We Work Remotely.
+    """
+    keyword = (search_term or "").lower()
+    seen: set[str] = set()
+    jobs: list[Job] = []
+    cursor: str | None = None
+    # Cap pages so a low-yield keyword can't page indefinitely. 100 jobs/page.
+    max_pages = 5
+
+    for _ in range(max_pages):
+        params = {"limit": 100}
+        if cursor:
+            params["cursor"] = cursor
+        try:
+            r = await client.get("https://himalayas.app/jobs/api", params=params)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as exc:
+            logger.warning("Himalayas feed failed: %s", exc)
+            break
+
+        items = data.get("jobs", [])
+        if not items:
+            break
+
+        for item in items:
+            text = " ".join(
+                [
+                    str(item.get("title") or ""),
+                    str(item.get("companyName") or ""),
+                    str(item.get("excerpt") or ""),
+                    " ".join(str(c) for c in item.get("categories", [])),
+                ]
+            )
+            if not _keyword_matches(text, keyword):
+                continue
+            job = _build_himalayas_job(item, job_type=job_type, employment_type=employment_type)
+            if job and job.is_us and job.id not in seen:
+                seen.add(job.id)
+                jobs.append(job)
+                if len(jobs) >= results_wanted:
+                    break
+
+        if len(jobs) >= results_wanted:
+            break
+        cursor = data.get("nextCursor")
+        if not cursor:
+            break
+
+    logger.info("Himalayas returned %d matching jobs", len(jobs))
+    return jobs
+
+
 def _map_apify_employment_type(value: str | None) -> str | None:
     """Map Apify employment_type string to our job_type vocabulary."""
     if not value:
@@ -1177,6 +1410,321 @@ async def _scrape_apify(
     return jobs
 
 
+_DICE_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+# Dice's employmentType facet values, keyed by our job_type / employment_type.
+DICE_EMPLOYMENT_FILTER = {
+    "contract": "CONTRACTS",
+    "fulltime": "FULLTIME",
+    "full-time": "FULLTIME",
+    "parttime": "PARTTIME",
+    "part-time": "PARTTIME",
+}
+
+
+def _find_dice_joblist(node: Any) -> list[dict] | None:
+    """Recursively locate the ``jobList.data`` array in a decoded RSC node."""
+    if isinstance(node, dict):
+        jl = node.get("jobList")
+        if isinstance(jl, dict) and isinstance(jl.get("data"), list):
+            return jl["data"]
+        for value in node.values():
+            found = _find_dice_joblist(value)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for value in node:
+            found = _find_dice_joblist(value)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_dice_joblist(html: str) -> list[dict]:
+    """Extract job records embedded in Dice's Next.js RSC (``__next_f``) chunks.
+
+    Dice's search page ships the results as escaped JSON inside
+    ``self.__next_f.push([1,"..."])`` script chunks rather than a REST API.
+    """
+    chunks = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL)
+    for chunk in chunks:
+        if "jobList" not in chunk:
+            continue
+        try:
+            decoded = json.loads('"' + chunk + '"')
+        except json.JSONDecodeError:
+            continue
+        # Chunks are prefixed with a hex id like '12:' before the JSON payload.
+        m = re.match(r"^[0-9a-fA-F]+:", decoded)
+        body = decoded[m.end():] if m else decoded
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        job_list = _find_dice_joblist(data)
+        if job_list:
+            return job_list
+    return []
+
+
+def _map_dice_job_type(value: str | None) -> str | None:
+    if not value:
+        return None
+    v = value.lower()
+    if "contract" in v or "third party" in v or "3rd party" in v:
+        return "contract"
+    if "full" in v:
+        return "fulltime"
+    if "part" in v:
+        return "parttime"
+    if "intern" in v:
+        return "internship"
+    return None
+
+
+def _build_dice_job(
+    item: dict,
+    job_type: str | None = None,
+    employment_type: str | None = None,
+) -> Job | None:
+    """Build a Job from a Dice search result record."""
+    title = (item.get("title") or "").strip()
+    if not title:
+        return None
+
+    company = (item.get("companyName") or "Unknown").strip()
+    is_remote = bool(item.get("isRemote"))
+    workplace = ", ".join(str(w) for w in (item.get("workplaceTypes") or []) if w)
+    location = workplace or ("Remote" if is_remote else "United States")
+    # Dice is a US tech board; treat postings as US-eligible.
+    is_us = True
+
+    description = re.sub(r"<[^>]+>", " ", str(item.get("summary") or ""))
+    description = re.sub(r"\s+", " ", description).strip()
+    text = f"{title} {description}".lower()
+
+    inferred_job_type = _map_dice_job_type(item.get("employmentType"))
+    if not inferred_job_type and _text_indicates_contract_role(text):
+        inferred_job_type = "contract"
+
+    inferred_employment_type = _detect_employment_type(description, title)
+    if not inferred_employment_type:
+        if str(item.get("employmentType") or "").lower().startswith("third"):
+            inferred_employment_type = "c2c"
+        elif inferred_job_type == "contract":
+            inferred_employment_type = "contract"
+
+    if not _matches_job_request(
+        Job(
+            id="",
+            site=DICE_SOURCE,
+            title=title,
+            company=company,
+            job_type=inferred_job_type,
+            employment_type=inferred_employment_type,
+            is_remote=is_remote,
+            is_us=is_us,
+        ),
+        job_type,
+        employment_type,
+    ):
+        return None
+
+    job_url = item.get("detailsPageUrl") or ""
+    raw_id = str(item.get("id") or item.get("guid") or job_url or title)
+    return Job(
+        id=f"{DICE_SOURCE}-{hashlib.md5(raw_id.encode()).hexdigest()[:16]}",
+        site=DICE_SOURCE,
+        title=title,
+        company=company,
+        location=location,
+        job_url=job_url,
+        description=description,
+        job_type=inferred_job_type,
+        employment_type=inferred_employment_type,
+        interval=None,
+        min_amount=None,
+        max_amount=None,
+        currency=None,
+        is_remote=is_remote,
+        is_us=is_us,
+        date_posted=_parse_iso_date(item.get("postedDate")),
+        date_scraped=datetime.utcnow(),
+    )
+
+
+async def _scrape_dice(
+    client: httpx.AsyncClient,
+    search_term: str,
+    job_type: str | None,
+    employment_type: str | None,
+    results_wanted: int,
+    is_remote: bool = True,
+) -> list[Job]:
+    """Scrape Dice.com contract/tech postings via its public search page.
+
+    Dice is a US, contract-heavy tech board, so it is a strong source for
+    W2 contract software-engineering roles that the general boards miss.
+    """
+    keyword = (search_term or "software engineer").strip()
+
+    # Pick the tightest employmentType facet we can. A C2C request maps to
+    # Dice's "Third Party" bucket; otherwise fall back to the job_type facet.
+    filter_value = None
+    if (employment_type or "").lower() == "c2c":
+        filter_value = "THIRD_PARTY"
+    elif job_type:
+        filter_value = DICE_EMPLOYMENT_FILTER.get(job_type.lower())
+
+    seen: set[str] = set()
+    jobs: list[Job] = []
+    max_pages = 5  # Dice serves 30 results/page.
+
+    for page in range(1, max_pages + 1):
+        params = {
+            "q": keyword,
+            "location": "United States",
+            "page": page,
+            "pageSize": 100,  # Dice caps this at 30, but the param is harmless.
+        }
+        if is_remote:
+            params["filters.workplaceTypes"] = "Remote"
+        if filter_value:
+            params["filters.employmentType"] = filter_value
+        url = "https://www.dice.com/jobs?" + urllib.parse.urlencode(params)
+
+        html = None
+        try:
+            r = await client.get(url, headers={"User-Agent": _DICE_UA, "Accept": "text/html"})
+            r.raise_for_status()
+            html = r.text
+        except Exception as exc:
+            logger.warning("Dice fetch failed (page %d): %s", page, exc)
+
+        items = _extract_dice_joblist(html) if html else []
+
+        # Dice renders its results through a JS framework and intermittently
+        # bot-blocks raw HTTP clients (empty shell, 403, or a challenge page).
+        # When the httpx path yields nothing, fall back to rendering the page
+        # in a real headless browser and re-parse the same embedded job data.
+        if not items:
+            rendered = await fetch_rendered(
+                url, wait_selector='[data-testid="job-search-serp-card"]'
+            )
+            if rendered:
+                items = _extract_dice_joblist(rendered)
+
+        if not items:
+            break
+
+        for item in items:
+            job = _build_dice_job(item, job_type=job_type, employment_type=employment_type)
+            if not job or not job.is_us:
+                continue
+            if not _keyword_matches(f"{job.title} {job.company} {job.description or ''}", keyword):
+                continue
+            if job.id in seen:
+                continue
+            seen.add(job.id)
+            jobs.append(job)
+            if len(jobs) >= results_wanted:
+                break
+
+        if len(jobs) >= results_wanted or len(items) < 30:
+            break
+
+    logger.info("Dice returned %d matching jobs", len(jobs))
+    return jobs
+
+
+async def _scrape_remoteok(
+    client: httpx.AsyncClient,
+    search_term: str,
+    job_type: str | None,
+    employment_type: str | None,
+    results_wanted: int,
+) -> list[Job]:
+    jobs: list[Job] = []
+    try:
+        r = await client.get("https://remoteok.com/api")
+        r.raise_for_status()
+        for item in r.json()[1:]:
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("position") or "").strip()
+            tags = " ".join(str(t) for t in item.get("tags", []))
+            description = str(item.get("description") or "")
+            if not _keyword_matches(f"{title} {tags} {description}", search_term):
+                continue
+            job = _build_remoteok_job(item, job_type=job_type, employment_type=employment_type)
+            if job and job.is_us:
+                jobs.append(job)
+                if len(jobs) >= results_wanted:
+                    break
+    except Exception as exc:
+        logger.warning("RemoteOK feed failed: %s", exc)
+    return jobs
+
+
+async def _scrape_weworkremotely(
+    client: httpx.AsyncClient,
+    search_term: str,
+    job_type: str | None,
+    employment_type: str | None,
+    results_wanted: int,
+) -> list[Job]:
+    jobs: list[Job] = []
+    try:
+        r = await client.get("https://weworkremotely.com/remote-jobs.rss")
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        for item in root.findall(".//item"):
+            raw_title = (item.findtext("title") or "").strip()
+            if ":" not in raw_title:
+                continue
+            _, title = _parse_wwr_title(raw_title)
+            description = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", item.findtext("description") or "")).strip()
+            if not _keyword_matches(f"{title} {description}", search_term):
+                continue
+            job = _build_weworkremotely_job(item, job_type=job_type, employment_type=employment_type)
+            if job and job.is_us:
+                jobs.append(job)
+                if len(jobs) >= results_wanted:
+                    break
+    except Exception as exc:
+        logger.warning("WWR feed failed: %s", exc)
+    return jobs
+
+
+async def scrape_builtin_source(
+    source: str,
+    search_term: str,
+    job_type: str | None = None,
+    employment_type: str | None = None,
+    results_wanted: int = DEFAULT_RESULTS_PER_BOARD,
+    is_remote: bool = True,
+) -> list[Job]:
+    if source == APIFY_SOURCE:
+        return await _scrape_apify(search_term, job_type, employment_type, results_wanted)
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        if source == "remoteok":
+            return await _scrape_remoteok(client, search_term, job_type, employment_type, results_wanted)
+        if source == "weworkremotely":
+            return await _scrape_weworkremotely(client, search_term, job_type, employment_type, results_wanted)
+        if source == "jobicy":
+            return await _scrape_jobicy(client, search_term, job_type, employment_type, results_wanted)
+        if source == "remotive":
+            return await _scrape_remotive(client, search_term, job_type, employment_type, results_wanted)
+        if source == "himalayas":
+            return await _scrape_himalayas(client, search_term, job_type, employment_type, results_wanted)
+        if source == DICE_SOURCE:
+            return await _scrape_dice(client, search_term, job_type, employment_type, results_wanted, is_remote)
+    raise ValueError(f"Unknown built-in source: {source}")
+
+
 async def scrape_remote_boards(
     search_term: str,
     job_type: str | None = None,
@@ -1197,6 +1745,12 @@ async def scrape_remote_boards(
         )
         remotive_task = asyncio.create_task(
             _scrape_remotive(client, keyword, job_type, employment_type, results_wanted)
+        )
+        dice_task = asyncio.create_task(
+            _scrape_dice(client, search_term, job_type, employment_type, results_wanted)
+        )
+        himalayas_task = asyncio.create_task(
+            _scrape_himalayas(client, search_term, job_type, employment_type, results_wanted)
         )
 
         # RemoteOK public JSON feed
@@ -1252,25 +1806,77 @@ async def scrape_remote_boards(
 
         jobicy_jobs = await jobicy_task
         remotive_jobs = await remotive_task
+        dice_jobs = await dice_task
+        himalayas_jobs = await himalayas_task
 
     apify_jobs = await apify_task
 
-    jobs = jobicy_jobs + remotive_jobs + remoteok_jobs + wwr_jobs + apify_jobs
+    jobs = (
+        jobicy_jobs
+        + remotive_jobs
+        + dice_jobs
+        + himalayas_jobs
+        + remoteok_jobs
+        + wwr_jobs
+        + apify_jobs
+    )
     logger.info("Remote board scrape finished, found %d jobs", len(jobs))
     return jobs
 
 
+_DEDUP_STRIP = re.compile(r"[^a-z0-9 ]+")
+_DEDUP_WS = re.compile(r"\s+")
+
+
+def _normalize_for_dedup(value: str | None) -> str:
+    if not value:
+        return ""
+    text = value.lower()
+    # Drop common company suffixes and seniority/location noise so the same
+    # role posted on multiple boards collapses to one key.
+    text = _DEDUP_STRIP.sub(" ", text)
+    text = re.sub(r"\b(inc|llc|ltd|corp|co|group|technologies|technology|solutions|remote)\b", " ", text)
+    return _DEDUP_WS.sub(" ", text).strip()
+
+
+def _dedup_key(job: Job) -> str:
+    """Build a cross-source semantic key from normalized company + title."""
+    base = f"{_normalize_for_dedup(job.company)}|{_normalize_for_dedup(job.title)}"
+    return hashlib.md5(base.encode()).hexdigest()[:20]
+
+
+# Fields that are derived at read time (computed) and must not be passed to the ORM.
+_COMPUTED_FIELDS = {
+    "normalized_min_yearly",
+    "normalized_max_yearly",
+    "normalized_currency",
+    "eligibility",
+}
+
+
 def save_jobs(jobs: list[Job], db: Session) -> int:
-    """Persist jobs to SQLite, skipping duplicates by id."""
+    """Persist jobs to SQLite, skipping exact-id and cross-source duplicates."""
     count = 0
+    # Track keys added in this batch so intra-batch duplicates are caught too.
+    batch_keys: set[str] = set()
     for job in jobs:
+        key = _dedup_key(job)
         existing = db.query(JobORM).filter(JobORM.id == job.id).first()
         if existing:
             continue
-        orm = JobORM(**job.model_dump(exclude_none=True, exclude={"date_posted"}))
+        if key in batch_keys or db.query(JobORM.id).filter(JobORM.dedup_key == key).first():
+            logger.debug("Skipping cross-source duplicate: %s @ %s", job.title, job.company)
+            continue
+        payload = job.model_dump(exclude_none=True, exclude={"date_posted", *_COMPUTED_FIELDS})
+        orm = JobORM(**payload)
         orm.date_posted = job.date_posted
+        # Persist the yearly-USD-normalized pay so it can be filtered/sorted in SQL.
+        orm.normalized_min_yearly = job.normalized_min_yearly
+        orm.normalized_max_yearly = job.normalized_max_yearly
+        orm.dedup_key = key
         orm.raw_data = json.dumps(job.model_dump(mode="json"))
         db.add(orm)
+        batch_keys.add(key)
         count += 1
     db.commit()
     return count

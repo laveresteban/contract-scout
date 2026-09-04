@@ -1,11 +1,12 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text, Boolean, create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from pydantic import BaseModel, Field, computed_field
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text, Boolean, ForeignKey, create_engine
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from app.config import DATABASE_URL
+from app.normalize import classify_eligibility, normalize_amount
 
 Base = declarative_base()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -29,11 +30,83 @@ class JobORM(Base):
     min_amount = Column(Float)
     max_amount = Column(Float)
     currency = Column(String)
+    # Pay normalized to approximate yearly USD so hourly contract rates and
+    # yearly full-time salaries can be filtered and sorted on one scale.
+    normalized_min_yearly = Column(Float, index=True)
+    normalized_max_yearly = Column(Float, index=True)
     is_remote = Column(Boolean, index=True, default=False)
     is_us = Column(Boolean, index=True, default=False)
     date_posted = Column(DateTime)
     date_scraped = Column(DateTime, default=datetime.utcnow)
+    dedup_key = Column(String, index=True)  # cross-source semantic duplicate key
     raw_data = Column(Text)
+
+
+class UserORM(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String, index=True)  # google, github
+    provider_id = Column(String, index=True)
+    email = Column(String, index=True)
+    name = Column(String)
+    avatar_url = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SavedJobORM(Base):
+    __tablename__ = "saved_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    job_id = Column(String, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class HiddenJobORM(Base):
+    __tablename__ = "hidden_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    job_id = Column(String, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ViewedJobORM(Base):
+    __tablename__ = "viewed_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    job_id = Column(String, index=True)
+    viewed_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SavedSearchORM(Base):
+    __tablename__ = "saved_searches"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    name = Column(String)
+    filters = Column(Text)  # JSON blob of the filter payload
+    alert_enabled = Column(Boolean, default=False)
+    alert_frequency = Column(String, default="daily")  # daily, weekly, immediate
+    last_alerted_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ScrapeRunORM(Base):
+    __tablename__ = "scrape_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String, index=True)  # e.g. major_boards, remote_boards, scheduled
+    trigger = Column(String)  # manual, scheduled
+    status = Column(String, index=True)  # success, error
+    jobs_found = Column(Integer, default=0)
+    jobs_saved = Column(Integer, default=0)
+    duration_ms = Column(Integer)
+    error = Column(Text)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime)
 
 
 class Job(BaseModel):
@@ -59,6 +132,26 @@ class Job(BaseModel):
     class Config:
         from_attributes = True
 
+    @computed_field
+    @property
+    def normalized_min_yearly(self) -> Optional[float]:
+        return normalize_amount(self.min_amount, self.interval, self.currency)
+
+    @computed_field
+    @property
+    def normalized_max_yearly(self) -> Optional[float]:
+        return normalize_amount(self.max_amount, self.interval, self.currency)
+
+    @computed_field
+    @property
+    def normalized_currency(self) -> str:
+        return "USD"
+
+    @computed_field
+    @property
+    def eligibility(self) -> str:
+        return classify_eligibility(self.location, self.is_remote, self.is_us)
+
 
 class JobSearchRequest(BaseModel):
     query: str = Field(default="software engineer")
@@ -81,6 +174,11 @@ class JobFilterRequest(BaseModel):
     employment_type: Optional[str] = None
     min_pay: Optional[float] = None
     max_pay: Optional[float] = None
+    # Pay filters expressed as yearly-USD equivalents. These compare against the
+    # normalized columns, so a $100/hr contract and a $200k/yr salary are ranked
+    # on the same scale.
+    min_yearly: Optional[float] = None
+    max_yearly: Optional[float] = None
     pay_interval: Optional[str] = None
     source: Optional[str] = None
     company: Optional[str] = None
@@ -91,3 +189,78 @@ class JobFilterRequest(BaseModel):
 class JobStats(BaseModel):
     last_scraped: Optional[datetime] = None
     count: int
+    by_source: dict[str, int] = Field(default_factory=dict)
+    by_employment_type: dict[str, int] = Field(default_factory=dict)
+    remote_count: int = 0
+    us_count: int = 0
+
+
+class User(BaseModel):
+    id: int
+    provider: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SavedSearch(BaseModel):
+    id: int
+    name: str
+    filters: dict[str, Any] = Field(default_factory=dict)
+    alert_enabled: bool = False
+    alert_frequency: str = "daily"
+    last_alerted_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SavedSearchCreate(BaseModel):
+    name: str
+    filters: dict[str, Any] = Field(default_factory=dict)
+    alert_enabled: bool = False
+    alert_frequency: str = "daily"
+
+
+class SavedSearchUpdate(BaseModel):
+    name: Optional[str] = None
+    filters: Optional[dict[str, Any]] = None
+    alert_enabled: Optional[bool] = None
+    alert_frequency: Optional[str] = None
+
+
+class ScrapeRun(BaseModel):
+    id: int
+    source: str
+    trigger: Optional[str] = None
+    status: str
+    jobs_found: int = 0
+    jobs_saved: int = 0
+    duration_ms: Optional[int] = None
+    error: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SourceHealth(BaseModel):
+    source: str
+    last_status: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+    last_duration_ms: Optional[int] = None
+    last_jobs_found: int = 0
+    last_error: Optional[str] = None
+
+
+class ScrapeHealth(BaseModel):
+    scheduler_enabled: bool = False
+    interval_minutes: int = 0
+    next_run_at: Optional[datetime] = None
+    sources: list[SourceHealth] = Field(default_factory=list)
+    recent_runs: list[ScrapeRun] = Field(default_factory=list)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { buildRecentLabel, DEFAULT_FILTER_VALUES } from '../utils/filters'
-import { addSavedSearch, loadSavedSearches, removeSavedSearch } from '../utils/savedSearches'
+
+const HOURS_PER_YEAR = 2080
 
 const DEFAULTS = {
   query: 'software engineer',
@@ -9,7 +10,7 @@ const DEFAULTS = {
   employmentType: '',
   minPay: '',
   maxPay: '',
-  payInterval: '',
+  payUnit: 'hourly',
   source: '',
   company: '',
   sortBy: 'date_posted',
@@ -17,24 +18,38 @@ const DEFAULTS = {
 }
 
 const SORT_OPTIONS = [
-  { value: 'date_posted:desc', label: 'Date posted – newest' },
-  { value: 'date_posted:asc', label: 'Date posted – oldest' },
-  { value: 'min_pay:asc', label: 'Pay (min) – low to high' },
-  { value: 'min_pay:desc', label: 'Pay (min) – high to low' },
-  { value: 'max_pay:asc', label: 'Pay (max) – low to high' },
-  { value: 'max_pay:desc', label: 'Pay (max) – high to low' },
+  { value: 'date_posted:desc', label: 'Newest first' },
+  { value: 'date_posted:asc', label: 'Oldest first' },
+  { value: 'annual_max:desc', label: 'Pay (yearly equiv.) – high to low' },
+  { value: 'annual_max:asc', label: 'Pay (yearly equiv.) – low to high' },
+  { value: 'annual_min:desc', label: 'Pay floor – high to low' },
   { value: 'relevance:desc', label: 'Relevance' },
 ]
 
+// Convert a stored yearly-USD figure back to a value in the chosen unit.
+function fromYearly(yearly, unit) {
+  if (yearly == null) return ''
+  return unit === 'hourly' ? Math.round(yearly / HOURS_PER_YEAR) : Math.round(yearly)
+}
+
+// Convert a typed value in the chosen unit to a yearly-USD figure.
+function toYearly(value, unit) {
+  if (!value) return undefined
+  const n = parseFloat(value)
+  if (Number.isNaN(n)) return undefined
+  return unit === 'hourly' ? n * HOURS_PER_YEAR : n
+}
+
 function paramsToState(params) {
+  const payUnit = params.pay_unit ?? DEFAULTS.payUnit
   return {
     query: params.query ?? DEFAULTS.query,
     location: params.location ?? DEFAULTS.location,
     jobType: params.job_type ?? DEFAULTS.jobType,
     employmentType: params.employment_type ?? DEFAULTS.employmentType,
-    minPay: params.min_pay ?? DEFAULTS.minPay,
-    maxPay: params.max_pay ?? DEFAULTS.maxPay,
-    payInterval: params.pay_interval ?? DEFAULTS.payInterval,
+    minPay: fromYearly(params.min_yearly, payUnit),
+    maxPay: fromYearly(params.max_yearly, payUnit),
+    payUnit,
     source: params.source ?? DEFAULTS.source,
     company: params.company ?? DEFAULTS.company,
     sortBy: params.sort_by ?? DEFAULTS.sortBy,
@@ -42,10 +57,20 @@ function paramsToState(params) {
   }
 }
 
+function formatCompact(n) {
+  if (n == null) return ''
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 0,
+  }).format(n)
+}
+
 function SearchFilters({
   onSearch,
   onQueryChange,
-  onShowToast,
+  onSaveSearch,
   loading,
   sources = [],
   companies = [],
@@ -58,13 +83,12 @@ function SearchFilters({
   const [employmentType, setEmploymentType] = useState(DEFAULTS.employmentType)
   const [minPay, setMinPay] = useState(DEFAULTS.minPay)
   const [maxPay, setMaxPay] = useState(DEFAULTS.maxPay)
-  const [payInterval, setPayInterval] = useState(DEFAULTS.payInterval)
+  const [payUnit, setPayUnit] = useState(DEFAULTS.payUnit)
   const [source, setSource] = useState(DEFAULTS.source)
   const [company, setCompany] = useState(DEFAULTS.company)
   const [sortBy, setSortBy] = useState(DEFAULTS.sortBy)
   const [sortOrder, setSortOrder] = useState(DEFAULTS.sortOrder)
   const [savedName, setSavedName] = useState('')
-  const [savedSearches, setSavedSearches] = useState(() => loadSavedSearches())
   const [showCompanySuggestions, setShowCompanySuggestions] = useState(false)
   const [highlightedCompany, setHighlightedCompany] = useState(-1)
   const companyInputRef = useRef(null)
@@ -79,7 +103,7 @@ function SearchFilters({
     setEmploymentType(next.employmentType)
     setMinPay(next.minPay)
     setMaxPay(next.maxPay)
-    setPayInterval(next.payInterval)
+    setPayUnit(next.payUnit)
     setSource(next.source)
     setCompany(next.company)
     setSortBy(next.sortBy)
@@ -120,9 +144,9 @@ function SearchFilters({
     is_remote: true,
     job_type: jobType,
     employment_type: employmentType || undefined,
-    min_pay: minPay ? parseFloat(minPay) : undefined,
-    max_pay: maxPay ? parseFloat(maxPay) : undefined,
-    pay_interval: payInterval || undefined,
+    min_yearly: toYearly(minPay, payUnit),
+    max_yearly: toYearly(maxPay, payUnit),
+    pay_unit: payUnit,
     source: source || undefined,
     company: company || undefined,
     sort_by: sortBy,
@@ -137,7 +161,7 @@ function SearchFilters({
     setEmploymentType(next.employmentType)
     setMinPay(next.minPay)
     setMaxPay(next.maxPay)
-    setPayInterval(next.payInterval)
+    setPayUnit(next.payUnit)
     setSource(next.source)
     setCompany(next.company)
     setSortBy(next.sortBy)
@@ -153,7 +177,7 @@ function SearchFilters({
   const handleReset = () => {
     cancelQueryDebounce()
     applyState(DEFAULT_FILTER_VALUES)
-    onSearch(buildParams())
+    onSearch({ ...DEFAULT_FILTER_VALUES, query: DEFAULTS.query, location: DEFAULTS.location, job_type: DEFAULTS.jobType })
   }
 
   const handleRecentClick = (entry) => {
@@ -165,25 +189,13 @@ function SearchFilters({
   const handleSaveSearch = () => {
     const params = buildParams()
     const name = savedName.trim() || buildRecentLabel(params)
-    setSavedSearches((prev) => addSavedSearch(prev, name, params))
+    onSaveSearch?.(name, params)
     setSavedName('')
-    onShowToast('Search saved', 'success')
   }
 
   const handleClearFilter = (filter) => {
     cancelQueryDebounce()
     onSearch({ ...buildParams(), ...filter.clear })
-    onShowToast(`Removed ${filter.label}`)
-  }
-
-  const handleSavedClick = (entry) => {
-    cancelQueryDebounce()
-    applyState(entry.params)
-    onSearch(entry.params)
-  }
-
-  const handleDeleteSaved = (id) => {
-    setSavedSearches((prev) => removeSavedSearch(prev, id))
   }
 
   const companySuggestions = company
@@ -243,14 +255,21 @@ function SearchFilters({
   const sortValue = `${sortBy}:${sortOrder}`
   const sortLabel = SORT_OPTIONS.find((option) => option.value === sortValue)?.label || sortValue
 
+  const unitLabel = payUnit === 'hourly' ? '/hr' : '/yr'
+  // Live hint that shows how the typed floor is compared on a yearly basis.
+  const minYearly = toYearly(minPay, payUnit)
+  const payHint =
+    payUnit === 'hourly' && minYearly
+      ? `≈ ${formatCompact(minYearly)}/yr — salaried roles are matched against this yearly figure`
+      : 'Contract rates and full-time salaries are compared on one yearly scale'
+
   const activeFilters = [
     query !== DEFAULTS.query && { key: 'query', label: query, clear: { query: DEFAULTS.query } },
     location !== DEFAULTS.location && { key: 'location', label: location, clear: { location: DEFAULTS.location } },
     jobType !== DEFAULTS.jobType && { key: 'job_type', label: jobType, clear: { job_type: DEFAULTS.jobType } },
     employmentType && { key: 'employment_type', label: employmentType.toUpperCase(), clear: { employment_type: undefined } },
-    minPay && { key: 'min_pay', label: `min $${minPay}`, clear: { min_pay: undefined } },
-    maxPay && { key: 'max_pay', label: `max $${maxPay}`, clear: { max_pay: undefined } },
-    payInterval && { key: 'pay_interval', label: payInterval, clear: { pay_interval: undefined } },
+    minPay && { key: 'min_yearly', label: `min $${minPay}${unitLabel}`, clear: { min_yearly: undefined } },
+    maxPay && { key: 'max_yearly', label: `max $${maxPay}${unitLabel}`, clear: { max_yearly: undefined } },
     source && { key: 'source', label: source, clear: { source: undefined } },
     company && { key: 'company', label: company, clear: { company: undefined } },
     (sortBy !== DEFAULTS.sortBy || sortOrder !== DEFAULTS.sortOrder) && {
@@ -263,7 +282,7 @@ function SearchFilters({
   return (
     <form className="search-form" onSubmit={handleSubmit}>
       <div className="search-fields">
-        <label>
+        <label className="field-grow">
           Search
           <input
             ref={queryInputRef}
@@ -278,7 +297,7 @@ function SearchFilters({
                 onQueryChange?.({ ...buildParams(), query: value })
               }, 300)
             }}
-            placeholder="e.g. software engineer"
+            placeholder="e.g. senior react engineer  (-junior to exclude)"
           />
         </label>
         <label>
@@ -309,40 +328,58 @@ function SearchFilters({
             <option value="contract">Contract</option>
           </select>
         </label>
-        <label>
-          Min pay
-          <input
-            type="number"
-            value={minPay}
-            onChange={(e) => setMinPay(e.target.value)}
-            placeholder="0"
-          />
-        </label>
-        <label>
-          Max pay
-          <input
-            type="number"
-            value={maxPay}
-            onChange={(e) => setMaxPay(e.target.value)}
-            placeholder="999"
-          />
-        </label>
-        <label>
-          Pay interval
-          <select value={payInterval} onChange={(e) => setPayInterval(e.target.value)}>
-            <option value="">Any</option>
-            <option value="hourly">Hourly</option>
-            <option value="yearly">Yearly</option>
-            <option value="monthly">Monthly</option>
-          </select>
-        </label>
+        <div className="pay-field">
+          <span className="pay-field__legend">Pay floor</span>
+          <div className="pay-field__row">
+            <div className="pay-input-group">
+              <span className="pay-input-group__prefix">$</span>
+              <input
+                type="number"
+                value={minPay}
+                onChange={(e) => setMinPay(e.target.value)}
+                placeholder={payUnit === 'hourly' ? '100' : '200000'}
+                aria-label="Minimum pay"
+              />
+            </div>
+            <span className="pay-field__to">to</span>
+            <div className="pay-input-group">
+              <span className="pay-input-group__prefix">$</span>
+              <input
+                type="number"
+                value={maxPay}
+                onChange={(e) => setMaxPay(e.target.value)}
+                placeholder="max"
+                aria-label="Maximum pay"
+              />
+            </div>
+            <div className="unit-toggle" role="group" aria-label="Pay unit">
+              <button
+                type="button"
+                className={payUnit === 'hourly' ? 'unit-toggle__btn unit-toggle__btn--active' : 'unit-toggle__btn'}
+                onClick={() => setPayUnit('hourly')}
+                aria-pressed={payUnit === 'hourly'}
+              >
+                / hr
+              </button>
+              <button
+                type="button"
+                className={payUnit === 'yearly' ? 'unit-toggle__btn unit-toggle__btn--active' : 'unit-toggle__btn'}
+                onClick={() => setPayUnit('yearly')}
+                aria-pressed={payUnit === 'yearly'}
+              >
+                / yr
+              </button>
+            </div>
+          </div>
+          <span className="pay-field__hint">{payHint}</span>
+        </div>
         <label>
           Source
           <select value={source} onChange={(e) => setSource(e.target.value)}>
-            <option value="">All sources</option>
+            <option value="">Default sources</option>
             {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
+              <option key={s.id} value={s.id} disabled={s.configured === false}>
+                {s.label}{s.configured === false ? ' (configure first)' : ''}
               </option>
             ))}
           </select>
@@ -411,18 +448,18 @@ function SearchFilters({
         <button type="button" className="reset" onClick={handleReset} disabled={loading}>
           Reset
         </button>
-      </div>
-      <div className="save-search">
-        <input
-          type="text"
-          value={savedName}
-          onChange={(e) => setSavedName(e.target.value)}
-          placeholder="Name this search"
-          disabled={loading}
-        />
-        <button type="button" onClick={handleSaveSearch} disabled={loading}>
-          Save search
-        </button>
+        <div className="save-search">
+          <input
+            type="text"
+            value={savedName}
+            onChange={(e) => setSavedName(e.target.value)}
+            placeholder="Name this search"
+            disabled={loading}
+          />
+          <button type="button" className="reset" onClick={handleSaveSearch} disabled={loading}>
+            Save
+          </button>
+        </div>
       </div>
       {activeFilters.length > 0 && (
         <div className="active-filters">
@@ -455,31 +492,6 @@ function SearchFilters({
             >
               {entry.label}
             </button>
-          ))}
-        </div>
-      )}
-      {savedSearches.length > 0 && (
-        <div className="saved-searches">
-          <span className="saved-label">Saved searches</span>
-          {savedSearches.map((entry) => (
-            <span key={entry.id} className="saved-chip">
-              <button
-                type="button"
-                className="saved-chip__label"
-                onClick={() => handleSavedClick(entry)}
-                disabled={loading}
-              >
-                {entry.name}
-              </button>
-              <button
-                type="button"
-                className="saved-chip__delete"
-                onClick={() => handleDeleteSaved(entry.id)}
-                aria-label={`Delete ${entry.name}`}
-              >
-                ×
-              </button>
-            </span>
           ))}
         </div>
       )}

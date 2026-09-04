@@ -4,9 +4,11 @@ export const DEFAULT_FILTER_VALUES = Object.freeze({
   job_type: 'contract',
   is_remote: true,
   employment_type: undefined,
-  min_pay: undefined,
-  max_pay: undefined,
-  pay_interval: undefined,
+  // Pay is compared as a yearly-USD equivalent; pay_unit remembers whether the
+  // user typed an hourly rate or a yearly salary.
+  min_yearly: undefined,
+  max_yearly: undefined,
+  pay_unit: 'hourly',
   source: undefined,
   company: undefined,
   sort_by: 'date_posted',
@@ -21,9 +23,9 @@ const FILTER_KEYS = [
   'location',
   'job_type',
   'employment_type',
-  'min_pay',
-  'max_pay',
-  'pay_interval',
+  'min_yearly',
+  'max_yearly',
+  'pay_unit',
   'source',
   'company',
   'sort_by',
@@ -52,9 +54,9 @@ export function deserializeFilters(search) {
     location: url.get('location') ?? DEFAULT_FILTER_VALUES.location,
     job_type: url.get('job_type') ?? DEFAULT_FILTER_VALUES.job_type,
     employment_type: url.get('employment_type') || undefined,
-    min_pay: url.get('min_pay') ? parseFloat(url.get('min_pay')) : undefined,
-    max_pay: url.get('max_pay') ? parseFloat(url.get('max_pay')) : undefined,
-    pay_interval: url.get('pay_interval') || undefined,
+    min_yearly: url.get('min_yearly') ? parseFloat(url.get('min_yearly')) : undefined,
+    max_yearly: url.get('max_yearly') ? parseFloat(url.get('max_yearly')) : undefined,
+    pay_unit: url.get('pay_unit') || DEFAULT_FILTER_VALUES.pay_unit,
     source: url.get('source') || undefined,
     company: url.get('company') || undefined,
     sort_by: url.get('sort_by') ?? DEFAULT_FILTER_VALUES.sort_by,
@@ -63,12 +65,19 @@ export function deserializeFilters(search) {
   }
 }
 
+const HOURS_PER_YEAR = 2080
+
+// Show a pay filter back in the unit the user typed it in (hourly or yearly).
+function payLabel(yearly, unit) {
+  if (unit === 'hourly') return `$${Math.round(yearly / HOURS_PER_YEAR)}/hr`
+  return `$${Math.round(yearly / 1000)}K/yr`
+}
+
 export function buildRecentLabel(params) {
   const filters = []
   if (params.employment_type) filters.push(params.employment_type.toUpperCase())
-  if (params.min_pay != null) filters.push(`min $${params.min_pay}`)
-  if (params.max_pay != null) filters.push(`max $${params.max_pay}`)
-  if (params.pay_interval) filters.push(params.pay_interval)
+  if (params.min_yearly != null) filters.push(`min ${payLabel(params.min_yearly, params.pay_unit)}`)
+  if (params.max_yearly != null) filters.push(`max ${payLabel(params.max_yearly, params.pay_unit)}`)
   if (params.source) filters.push(params.source)
   if (params.company) filters.push(params.company)
   const isDefaultSort =

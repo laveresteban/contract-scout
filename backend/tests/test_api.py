@@ -40,7 +40,18 @@ def test_list_sources(client):
     ids = {s["id"] for s in sources}
     assert "indeed" in ids
     assert "linkedin" in ids
+    assert "glassdoor" in ids
+    assert "careerjet" in ids
+    assert "greenhouse" in ids
+    assert "hackernews" in ids
     assert "apify" in ids
+    assert all("configured" in source for source in sources)
+
+
+def test_search_rejects_unknown_source(client):
+    response = client.post("/api/v1/search", json={"query": "python", "sources": ["unknown"]})
+    assert response.status_code == 400
+    assert "Unknown job source" in response.json()["detail"]
 
 
 def test_get_job_stats(client, sample_job):
@@ -95,7 +106,6 @@ def test_filter_jobs(client, sample_job):
 
 
 def test_search_jobs(client, monkeypatch):
-    from app import api as api_module
     from app import scraper
 
     def fake_major(*args, **kwargs):
@@ -115,7 +125,8 @@ def test_search_jobs(client, monkeypatch):
             )
         ]
 
-    async def fake_remote(*args, **kwargs):
+    async def fake_builtin(source, *args, **kwargs):
+        assert source == "remoteok"
         return [
             Job(
                 id="remoteok-1",
@@ -131,11 +142,9 @@ def test_search_jobs(client, monkeypatch):
             )
         ]
 
-    monkeypatch.setattr(api_module, "scrape_major_boards", fake_major)
-    monkeypatch.setattr(api_module, "scrape_remote_boards", fake_remote)
-    # Patch the scraper module too, in case other code paths reference it.
+    # run_scrape resolves these off the scraper module at call time.
     monkeypatch.setattr(scraper, "scrape_major_boards", fake_major)
-    monkeypatch.setattr(scraper, "scrape_remote_boards", fake_remote)
+    monkeypatch.setattr(scraper, "scrape_builtin_source", fake_builtin)
 
     response = client.post(
         "/api/v1/search",
@@ -145,12 +154,17 @@ def test_search_jobs(client, monkeypatch):
             "is_remote": True,
             "job_type": "contract",
             "results_wanted": 5,
+            "sources": ["indeed", "remoteok"],
         },
     )
     assert response.status_code == 200
     data = response.json()
     assert data["scraped"] == 2
     assert data["saved"] == 2
+
+    health = client.get("/api/v1/scrape/health").json()
+    health_sources = {source["source"] for source in health["sources"]}
+    assert {"indeed", "remoteok"}.issubset(health_sources)
 
     response = client.get("/api/v1/jobs?source=remoteok")
     assert response.status_code == 200

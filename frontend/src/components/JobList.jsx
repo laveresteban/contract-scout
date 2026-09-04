@@ -27,6 +27,7 @@ function JobList({
   onRetry,
   favorites,
   hidden,
+  viewed,
   lastVisit,
   viewMode,
   onToggleFavorite,
@@ -58,6 +59,7 @@ function JobList({
 
   const hiddenSet = new Set(hidden)
   const favoriteSet = new Set(favorites)
+  const viewedSet = new Set(viewed)
   const isNew = (job) => {
     if (!lastVisit || !job.date_scraped) return false
     return new Date(job.date_scraped) > lastVisit
@@ -87,6 +89,7 @@ function JobList({
           onSelect={onSelectJob}
           isFavorite={favoriteSet.has(job.id)}
           isNew={isNew(job)}
+          isViewed={viewedSet.has(job.id)}
           onToggleFavorite={onToggleFavorite}
           onToggleHidden={onToggleHidden}
         />

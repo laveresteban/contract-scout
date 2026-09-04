@@ -5,15 +5,21 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
+import app.scraper as scraper_module
 from app.scraper import (
     ALL_SOURCES,
     _build_apify_job,
+    _build_dice_job,
+    _build_himalayas_job,
     _build_jobicy_job,
     _build_remoteok_job,
     _build_remotive_job,
     _build_weworkremotely_job,
     _detect_employment_type,
+    _extract_dice_joblist,
     _infer_interval_from_amounts,
+    _map_dice_job_type,
+    _map_himalayas_employment_type,
     _matches_job_request,
     _normalize_location,
     _parse_amount,
@@ -22,6 +28,7 @@ from app.scraper import (
     _parse_pay_from_text,
     _parse_remotive_salary,
     _row_to_job,
+    _scrape_dice,
     _text_indicates_contract_role,
     scrape_major_boards,
 )
@@ -55,6 +62,16 @@ class TestHelpers:
 
     def test_detect_employment_type_w2(self):
         assert _detect_employment_type("Full-time employee W2 position", "") == "w2"
+
+    def test_detect_employment_type_w2_contract(self):
+        assert _detect_employment_type("This is a remote W2 contract opportunity", "") == "w2"
+
+    def test_detect_employment_type_w2_only_no_c2c(self):
+        # "No C2C" phrasing implies a W2 engagement and must not be read as C2C.
+        assert _detect_employment_type("W2 only, no C2C or 1099", "") == "w2"
+
+    def test_detect_employment_type_c2c_still_wins_when_offered(self):
+        assert _detect_employment_type("Open to C2C candidates", "") == "c2c"
 
     def test_text_indicates_contract_role(self):
         assert _text_indicates_contract_role("Freelance software engineer contract")
@@ -304,6 +321,221 @@ class TestScrapeMajorBoards:
         assert jobs[0].site == "indeed"
 
 
+class TestDice:
+    def _dice_item(self, **overrides):
+        item = {
+            "id": "abc123",
+            "guid": "guid-1",
+            "detailsPageUrl": "https://www.dice.com/job-detail/guid-1",
+            "companyName": "Dexian DISYS",
+            "employmentType": "Contract",
+            "employerType": "Recruiter",
+            "postedDate": "2026-09-02T16:10:22Z",
+            "title": "Senior Mainframe Software Engineer",
+            "summary": "This is a remote W2 contract opportunity with potential for extension.",
+            "isRemote": True,
+            "workplaceTypes": ["Remote"],
+        }
+        item.update(overrides)
+        return item
+
+    def test_map_dice_job_type(self):
+        assert _map_dice_job_type("Contract") == "contract"
+        assert _map_dice_job_type("Full-time") == "fulltime"
+        assert _map_dice_job_type("Third Party") == "contract"
+        assert _map_dice_job_type(None) is None
+
+    def test_build_dice_job_w2_contract(self):
+        job = _build_dice_job(self._dice_item(), job_type="contract")
+        assert job
+        assert job.site == "dice"
+        assert job.title == "Senior Mainframe Software Engineer"
+        assert job.company == "Dexian DISYS"
+        assert job.job_type == "contract"
+        assert job.employment_type == "w2"  # detected from "W2 contract"
+        assert job.is_remote
+        assert job.is_us
+        assert job.id.startswith("dice-")
+        assert job.job_url == "https://www.dice.com/job-detail/guid-1"
+
+    def test_build_dice_job_third_party_is_c2c(self):
+        item = self._dice_item(employmentType="Third Party", summary="Great opportunity for an engineer.")
+        job = _build_dice_job(item, job_type="contract")
+        assert job
+        assert job.employment_type == "c2c"
+
+    def test_build_dice_job_filters_by_employment_type(self):
+        # A full-time posting should be dropped when contract is requested.
+        item = self._dice_item(
+            employmentType="Full-time",
+            summary="Permanent full-time employee role with benefits.",
+        )
+        assert _build_dice_job(item, job_type="contract") is None
+
+    def test_extract_dice_joblist_from_rsc_chunk(self):
+        import json
+
+        payload = ["$", "$L32", None, {"jobList": {"data": [self._dice_item()]}}]
+        chunk = "12:" + json.dumps(payload)
+        # Re-escape as it appears inside self.__next_f.push([1,"..."]).
+        escaped = json.dumps(chunk)[1:-1]
+        html = f'<script>self.__next_f.push([1,"{escaped}"])</script>'
+        items = _extract_dice_joblist(html)
+        assert len(items) == 1
+        assert items[0]["title"] == "Senior Mainframe Software Engineer"
+
+    def test_extract_dice_joblist_missing_returns_empty(self):
+        assert _extract_dice_joblist("<html>no data here</html>") == []
+
+
+class TestHimalayas:
+    def _item(self, **overrides):
+        item = {
+            "title": "Senior Backend Engineer (Contract)",
+            "companyName": "Acme Labs",
+            "employmentType": "Contract",
+            "minSalary": 90,
+            "maxSalary": 130,
+            "salaryPeriod": "hourly",
+            "currency": "USD",
+            "locationRestrictions": ["United States"],
+            "categories": ["Backend", "Python"],
+            "description": "<p>Independent contractor role. 1099 engagement.</p>",
+            "excerpt": "Contract backend role.",
+            "pubDate": 1788523038,
+            "applicationLink": "https://himalayas.app/companies/acme/jobs/senior-backend-engineer",
+            "guid": "https://himalayas.app/companies/acme/jobs/senior-backend-engineer",
+        }
+        item.update(overrides)
+        return item
+
+    def test_map_himalayas_employment_type(self):
+        assert _map_himalayas_employment_type("Contract") == "contract"
+        assert _map_himalayas_employment_type("Freelance") == "contract"
+        assert _map_himalayas_employment_type("Full Time") == "fulltime"
+        assert _map_himalayas_employment_type("Part Time") == "parttime"
+        assert _map_himalayas_employment_type("Internship") == "internship"
+        assert _map_himalayas_employment_type(None) is None
+
+    def test_build_himalayas_contract_job(self):
+        job = _build_himalayas_job(self._item(), job_type="contract")
+        assert job
+        assert job.site == "himalayas"
+        assert job.title == "Senior Backend Engineer (Contract)"
+        assert job.company == "Acme Labs"
+        assert job.job_type == "contract"
+        assert job.employment_type == "1099"  # detected from description text
+        assert job.is_remote
+        assert job.is_us
+        assert job.interval == "hourly"
+        assert job.min_amount == 90
+        assert job.max_amount == 130
+        assert job.id.startswith("himalayas-")
+        assert job.job_url.endswith("/senior-backend-engineer")
+
+    def test_build_himalayas_annual_interval(self):
+        job = _build_himalayas_job(
+            self._item(salaryPeriod="annual", minSalary=120000, maxSalary=160000)
+        )
+        assert job
+        assert job.interval == "yearly"
+
+    def test_build_himalayas_worldwide_is_us_eligible(self):
+        job = _build_himalayas_job(self._item(locationRestrictions=[]))
+        assert job
+        assert job.is_us
+
+    def test_build_himalayas_europe_only_not_us(self):
+        job = _build_himalayas_job(self._item(locationRestrictions=["Europe"]))
+        assert job
+        assert job.is_remote
+        assert not job.is_us
+
+    def test_build_himalayas_fulltime_dropped_when_contract_requested(self):
+        item = self._item(
+            title="Staff Engineer",
+            employmentType="Full Time",
+            description="<p>Permanent full-time employee role with 401(k) and benefits.</p>",
+            excerpt="Full-time staff role.",
+        )
+        assert _build_himalayas_job(item, job_type="contract") is None
+
+
+class TestDiceBrowserFallback:
+    def _dice_html(self):
+        import json
+
+        item = {
+            "id": "abc123",
+            "detailsPageUrl": "https://www.dice.com/job-detail/guid-1",
+            "companyName": "Dexian",
+            "employmentType": "Contract",
+            "postedDate": "2026-09-02T16:10:22Z",
+            "title": "Remote Contract Software Engineer",
+            "summary": "Remote W2 contract role for a software engineer.",
+            "isRemote": True,
+            "workplaceTypes": ["Remote"],
+        }
+        payload = ["$", "$L32", None, {"jobList": {"data": [item]}}]
+        chunk = "12:" + json.dumps(payload)
+        escaped = json.dumps(chunk)[1:-1]
+        return f'<script>self.__next_f.push([1,"{escaped}"])</script>'
+
+    class _EmptyClient:
+        """httpx-like client that always returns a page with no job data."""
+
+        async def get(self, url, **kwargs):
+            class _Resp:
+                text = "<html>blocked</html>"
+
+                def raise_for_status(self):
+                    return None
+
+            return _Resp()
+
+    @pytest.mark.asyncio
+    async def test_dice_falls_back_to_browser_render(self, monkeypatch):
+        rendered = self._dice_html()
+
+        async def fake_fetch_rendered(url, **kwargs):
+            return rendered
+
+        monkeypatch.setattr(scraper_module, "fetch_rendered", fake_fetch_rendered)
+
+        jobs = await _scrape_dice(
+            self._EmptyClient(),
+            "software engineer",
+            job_type="contract",
+            employment_type=None,
+            results_wanted=5,
+        )
+        assert len(jobs) == 1
+        assert jobs[0].site == "dice"
+        assert jobs[0].title == "Remote Contract Software Engineer"
+
+    @pytest.mark.asyncio
+    async def test_dice_no_browser_when_unavailable(self, monkeypatch):
+        async def fake_fetch_rendered(url, **kwargs):
+            return None  # Playwright unavailable / render failed.
+
+        monkeypatch.setattr(scraper_module, "fetch_rendered", fake_fetch_rendered)
+
+        jobs = await _scrape_dice(
+            self._EmptyClient(),
+            "software engineer",
+            job_type="contract",
+            employment_type=None,
+            results_wanted=5,
+        )
+        assert jobs == []
+
+
 class TestSources:
     def test_all_sources_includes_apify(self):
         assert "apify" in ALL_SOURCES
+
+    def test_all_sources_includes_dice(self):
+        assert "dice" in ALL_SOURCES
+
+    def test_all_sources_includes_himalayas(self):
+        assert "himalayas" in ALL_SOURCES

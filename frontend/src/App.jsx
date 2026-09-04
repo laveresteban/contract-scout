@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import SearchFilters from './components/SearchFilters'
 import JobList from './components/JobList'
 import JobDetail from './components/JobDetail'
 import PayInsights from './components/PayInsights'
 import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
+import AuthBar from './components/AuthBar'
+import SavedSearchesPanel from './components/SavedSearchesPanel'
+import ScrapeHealthPanel from './components/ScrapeHealthPanel'
+import { AuthProvider, useAuth } from './auth/AuthContext'
+import { usePrefs } from './hooks/usePrefs'
+import { useSavedSearches } from './hooks/useSavedSearches'
 import { getJob, getJobStats, listJobs, listSources, scrapeJobs } from './api'
 import {
   addRecentSearch,
@@ -14,22 +20,17 @@ import {
 } from './utils/filters'
 import { downloadFile, jobsToCsv } from './utils/export'
 import { formatRelativeTime } from './utils/format'
-import {
-  clearHidden,
-  loadFavorites,
-  loadHidden,
-  loadLastVisit,
-  loadTheme,
-  saveLastVisit,
-  saveTheme,
-  toggleFavorite,
-  toggleHidden,
-} from './utils/prefs'
+import { loadLastVisit, loadTheme, saveLastVisit, saveTheme } from './utils/prefs'
 
 const PAGE_SIZE = 25
 
-function App() {
+function AppContent({ toasts, showToast, onCloseToast }) {
+  const { user } = useAuth()
+  const prefs = usePrefs(user)
+  const savedSearches = useSavedSearches(user)
+
   const [jobs, setJobs] = useState([])
+  const [total, setTotal] = useState(0)
   const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -45,13 +46,9 @@ function App() {
   const [selectedJob, setSelectedJob] = useState(null)
   const [selectedJobLoading, setSelectedJobLoading] = useState(false)
   const [selectedJobError, setSelectedJobError] = useState(null)
-  const [favorites, setFavorites] = useState(() => loadFavorites())
-  const [hidden, setHidden] = useState(() => loadHidden())
   const [viewMode, setViewMode] = useState('all')
   const [theme, setTheme] = useState(() => loadTheme())
   const [lastVisit] = useState(() => loadLastVisit())
-  const [toasts, setToasts] = useState([])
-  const toastIdRef = useRef(0)
   const [announcement, setAnnouncement] = useState('')
   const announce = (message) => setAnnouncement(message)
 
@@ -94,8 +91,8 @@ function App() {
       .finally(() => setSelectedJobLoading(false))
   }, [selectedJobId])
 
-  const hiddenSet = useMemo(() => new Set(hidden), [hidden])
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites])
+  const hiddenSet = useMemo(() => new Set(prefs.hidden), [prefs.hidden])
+  const favoriteSet = useMemo(() => new Set(prefs.favorites), [prefs.favorites])
 
   const visibleJobs = useMemo(() => {
     return jobs.filter((job) => {
@@ -127,18 +124,6 @@ function App() {
     }
   }
 
-  const showToast = (message, type = 'info') => {
-    const id = ++toastIdRef.current
-    setToasts((prev) => [...prev, { id, message, type }])
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id))
-    }, 3000)
-  }
-
-  const handleCloseToast = (id) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id))
-  }
-
   const fetchJobs = async (params, { scrape = false, append = false, shouldAnnounce = true } = {}) => {
     const fetchId = ++fetchIdRef.current
 
@@ -157,18 +142,18 @@ function App() {
     try {
       if (scrape) {
         const scrapeParams = { ...params }
+        if (scrapeParams.source) scrapeParams.sources = [scrapeParams.source]
         delete scrapeParams.source
         await scrapeJobs({ ...scrapeParams, results_wanted: PAGE_SIZE })
       }
-      const fetched = await listJobs({
+      const { jobs: fetched, total: totalCount } = await listJobs({
         q: params.query,
         is_remote: true,
         is_us: true,
         job_type: params.job_type,
         employment_type: params.employment_type,
-        min_pay: params.min_pay,
-        max_pay: params.max_pay,
-        pay_interval: params.pay_interval,
+        min_yearly: params.min_yearly,
+        max_yearly: params.max_yearly,
         source: params.source,
         company: params.company,
         sort_by: params.sort_by,
@@ -178,18 +163,14 @@ function App() {
       })
       if (fetchId !== fetchIdRef.current) return
       setJobs((prev) => (append ? [...prev, ...fetched] : fetched))
-      setHasMore(fetched.length === PAGE_SIZE)
+      setTotal(totalCount)
+      setHasMore(currentOffset + fetched.length < totalCount)
       setOffset(currentOffset + fetched.length)
       if (shouldAnnounce) {
-        if (fetched.length === 0) {
-          if (append) {
-            announce('No more jobs')
-          } else {
-            announce('No jobs found for this search')
-          }
+        if (fetched.length === 0 && !append) {
+          announce('No jobs found for this search')
         } else {
-          const total = append ? jobs.length + fetched.length : fetched.length
-          announce(`Loaded ${total} jobs`)
+          announce(`Loaded ${append ? jobs.length + fetched.length : fetched.length} of ${totalCount} jobs`)
         }
       }
     } catch (err) {
@@ -225,31 +206,60 @@ function App() {
   }
 
   const handleRetry = () => {
-    if (lastSearch) {
-      handleSearch(lastSearch)
-    }
+    if (lastSearch) handleSearch(lastSearch)
   }
 
-  const handleSelectJob = (id) => setSelectedJobId(id)
+  const handleSelectJob = (id) => {
+    setSelectedJobId(id)
+    prefs.markViewed(id)
+  }
   const handleCloseDetail = () => setSelectedJobId(null)
 
   const handleToggleFavorite = (id) => {
-    const removing = favoriteSet.has(id)
-    setFavorites((prev) => toggleFavorite(prev, id))
-    showToast(removing ? 'Removed from saved jobs' : 'Saved job')
+    const removed = prefs.toggleFavorite(id)
+    showToast(removed ? 'Removed from saved jobs' : 'Saved job')
   }
 
   const handleToggleHidden = (id) => {
-    const removing = hiddenSet.has(id)
-    setHidden((prev) => toggleHidden(prev, id))
-    showToast(removing ? 'Job shown' : 'Job hidden')
+    const removed = prefs.toggleHidden(id)
+    showToast(removed ? 'Job shown' : 'Job hidden')
   }
 
   const handleClearHidden = () => {
-    setHidden(clearHidden())
+    prefs.clearHidden()
     showToast('Hidden jobs shown')
   }
   const handleToggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
+
+  const handleSaveSearch = async (name, params) => {
+    try {
+      await savedSearches.add(name, params)
+      showToast('Search saved', 'success')
+    } catch {
+      showToast('Could not save search', 'error')
+    }
+  }
+
+  const handleRunSaved = (entry) => {
+    setInitialParams(entry.params)
+    handleSearch(entry.params)
+  }
+
+  const handleDeleteSaved = async (id) => {
+    await savedSearches.remove(id)
+    showToast('Saved search deleted')
+  }
+
+  const handleUpdateSaved = async (id, patch) => {
+    try {
+      await savedSearches.update(id, patch)
+      if (patch.alert_enabled !== undefined) {
+        showToast(patch.alert_enabled ? 'Email alerts on' : 'Email alerts off', 'success')
+      }
+    } catch {
+      showToast('Could not update saved search', 'error')
+    }
+  }
 
   const handleExportCsv = () => {
     const csv = jobsToCsv(visibleJobs)
@@ -268,7 +278,6 @@ function App() {
       await navigator.clipboard.writeText(window.location.href)
       showToast('Search link copied', 'success')
     } catch {
-      // fallback for older browsers
       const input = document.createElement('input')
       input.value = window.location.href
       document.body.appendChild(input)
@@ -284,7 +293,10 @@ function App() {
       <header>
         <div className="header-content">
           <h1>Contract Scout</h1>
-          <ThemeToggle theme={theme} onToggle={handleToggleTheme} />
+          <div className="header-actions">
+            <AuthBar />
+            <ThemeToggle theme={theme} onToggle={handleToggleTheme} />
+          </div>
         </div>
         <p>Remote US contract jobs for software engineers and tech professionals.</p>
       </header>
@@ -293,7 +305,7 @@ function App() {
         <SearchFilters
           onSearch={handleSearch}
           onQueryChange={handleQueryChange}
-          onShowToast={showToast}
+          onSaveSearch={handleSaveSearch}
           loading={loading}
           sources={sources}
           companies={companies}
@@ -302,11 +314,23 @@ function App() {
         />
       </section>
 
+      <SavedSearchesPanel
+        searches={savedSearches.searches}
+        supportsAlerts={savedSearches.supportsAlerts}
+        onRun={handleRunSaved}
+        onDelete={handleDeleteSaved}
+        onUpdate={handleUpdateSaved}
+      />
+
+      <ScrapeHealthPanel />
+
       <section className="card">
         <div className="results-header">
           <div className="results-title">
             <h2>
-              {viewMode === 'favorites' ? 'Saved jobs' : 'Jobs'} ({visibleJobs.length})
+              {viewMode === 'favorites'
+                ? `Saved jobs (${visibleJobs.length})`
+                : `Jobs (${visibleJobs.length}${total > visibleJobs.length ? ` of ${total}` : ''})`}
             </h2>
             {jobStats?.last_scraped && (
               <span className="last-scraped" title={new Date(jobStats.last_scraped).toLocaleString()}>
@@ -324,9 +348,9 @@ function App() {
               <option value="all">All jobs</option>
               <option value="favorites">Saved jobs</option>
             </select>
-            {hidden.length > 0 && (
+            {prefs.hidden.length > 0 && (
               <button onClick={handleClearHidden} className="clear-hidden-button">
-                Show {hidden.length} hidden
+                Show {prefs.hidden.length} hidden
               </button>
             )}
             {jobs.length > 0 && (
@@ -357,8 +381,9 @@ function App() {
           onLoadMore={handleLoadMore}
           onSelectJob={handleSelectJob}
           onRetry={handleRetry}
-          favorites={favorites}
-          hidden={hidden}
+          favorites={prefs.favorites}
+          hidden={prefs.hidden}
+          viewed={prefs.viewed}
           lastVisit={lastVisit}
           viewMode={viewMode}
           onToggleFavorite={handleToggleFavorite}
@@ -373,12 +398,35 @@ function App() {
         onClose={handleCloseDetail}
       />
 
-      <ToastContainer toasts={toasts} onClose={handleCloseToast} />
+      <ToastContainer toasts={toasts} onClose={onCloseToast} />
 
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
     </div>
+  )
+}
+
+function App() {
+  const [toasts, setToasts] = useState([])
+  const toastIdRef = useRef(0)
+
+  const showToast = useCallback((message, type = 'info') => {
+    const id = ++toastIdRef.current
+    setToasts((prev) => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id))
+    }, 3000)
+  }, [])
+
+  const handleCloseToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
+  }, [])
+
+  return (
+    <AuthProvider onNotify={showToast}>
+      <AppContent toasts={toasts} showToast={showToast} onCloseToast={handleCloseToast} />
+    </AuthProvider>
   )
 }
 

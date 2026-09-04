@@ -5,9 +5,9 @@ services:
       dockerfile: Dockerfile
     container_name: contract-scout-backend
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
-      - DATABASE_URL=sqlite:///app/data/jobs.db
+      - DATABASE_URL=sqlite:////app/data/jobs.db
       - CORS_ORIGINS=http://localhost,http://localhost:5173,http://localhost:80
       - SCRAPER_HOURS_OLD=168
       - RESULTS_PER_BOARD=25
