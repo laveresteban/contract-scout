@@ -16,6 +16,7 @@ from app.scraper import (
     _build_remotive_job,
     _build_weworkremotely_job,
     _detect_employment_type,
+    _dice_detail,
     _extract_dice_joblist,
     _infer_interval_from_amounts,
     _map_dice_job_type,
@@ -77,6 +78,53 @@ class TestHelpers:
         assert _text_indicates_contract_role("Freelance software engineer contract")
         assert not _text_indicates_contract_role("Full-time employee with benefits")
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "6 month contract",
+            "12-month assignment",
+            "contract-to-hire opportunity",
+            "temporary role",
+            "consulting engagement",
+        ],
+    )
+    def test_text_indicates_fixed_term_contract_role(self, text):
+        assert _text_indicates_contract_role(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Full-time employee supporting a federal contract",
+            "Position contingent upon contract award with full employee benefits",
+            "Implement Comply-to-Connect (C2C) network controls",
+        ],
+    )
+    def test_text_does_not_treat_customer_contract_context_as_contract_role(self, text):
+        assert not _text_indicates_contract_role(text)
+
+    def test_detect_employment_type_negated_corp_to_corp_and_1099(self):
+        text = "Direct-hire W-2 position. No Corp-2-Corp or 1099 contractors."
+        assert _detect_employment_type(text, "AI Engineer") == "w2"
+
+    def test_detect_employment_type_trailing_negation(self):
+        text = "We ask Corp-to-Corp or 1099 candidates to refrain from applying."
+        assert _detect_employment_type(text, "Engineer") == "w2"
+
+    def test_regular_role_does_not_treat_compliance_c2c_as_engagement(self):
+        from app.models import Job
+
+        job = Job(
+            id="regular",
+            site="indeed",
+            title="Systems Architect",
+            company="Acme",
+            description="Requisition Type:**Regular**. Implement Comply\\-to\\-Connect (C2C) controls.",
+            job_type="contract",
+            employment_type="c2c",
+        )
+        assert job.job_type == "fulltime"
+        assert job.employment_type == "w2"
+
     def test_parse_pay_from_text_yearly(self):
         lo, hi, interval = _parse_pay_from_text("Salary $120,000 - $150,000 per year")
         assert lo == 120000
@@ -88,6 +136,24 @@ class TestHelpers:
         assert lo == 75
         assert hi == 95
         assert interval == "hourly"
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("Pay rate: $85-$105/hr", (85, 105, "hourly")),
+            ("Rate: 85 to 105 per hour", (85, 105, "hourly")),
+            ("Compensation: $85.50 - $105.75 hourly", (85.5, 105.75, "hourly")),
+            ("up to $110/hr", (None, 110, "hourly")),
+            ("from $75/hour", (75, None, "hourly")),
+            ("$80-100 an hour", (80, 100, "hourly")),
+            ("Rate: \\$60 \\- \\$65 per hour", (60, 65, "hourly")),
+        ],
+    )
+    def test_parse_pay_from_text_real_world_hourly_formats(self, text, expected):
+        assert _parse_pay_from_text(text) == expected
+
+    def test_parse_pay_ignores_unqualified_dollar_value(self):
+        assert _parse_pay_from_text("Includes a $1,000 equipment allowance") == (None, None, None)
 
     def test_parse_remotive_salary_k_range(self):
         lo, hi, interval = _parse_remotive_salary("$120k - $230k")
@@ -134,6 +200,8 @@ class TestHelpers:
         )
         assert _matches_job_request(job, "contract", None)
         assert _matches_job_request(job, None, "1099")
+        assert _matches_job_request(job, "contract", "1099")
+        assert not _matches_job_request(job, "contract", "w2")
         assert not _matches_job_request(job, "fulltime", None)
 
 
@@ -290,7 +358,10 @@ class TestRowToJob:
 
 class TestScrapeMajorBoards:
     def test_scrape_major_boards_with_mock(self, monkeypatch):
+        terms = []
+
         def fake_scrape_jobs(**kwargs):
+            terms.append(kwargs["search_term"])
             return pd.DataFrame(
                 [
                     {
@@ -319,6 +390,7 @@ class TestScrapeMajorBoards:
         assert len(jobs) == 1
         assert jobs[0].title == "Python Contractor"
         assert jobs[0].site == "indeed"
+        assert any("contract" in term.lower() for term in terms)
 
 
 class TestDice:
@@ -386,6 +458,16 @@ class TestDice:
 
     def test_extract_dice_joblist_missing_returns_empty(self):
         assert _extract_dice_joblist("<html>no data here</html>") == []
+
+    def test_extract_dice_detail_compensation(self):
+        html = '''
+        <script type="application/ld+json">
+        {"@type":"JobPosting","description":"<p>Six month W2 contract.</p>","baseSalary":{"@type":"MonetaryAmount","currency":"USD","value":{"minValue":85,"maxValue":105,"unitText":"HOUR"}}}
+        </script>
+        '''
+        description, minimum, maximum, currency, interval = _dice_detail(html)
+        assert description == "Six month W2 contract."
+        assert (minimum, maximum, currency, interval) == (85, 105, "USD", "HOUR")
 
 
 class TestHimalayas:

@@ -14,6 +14,7 @@ from urllib.parse import quote, urljoin
 import httpx
 
 from app import config
+from app.extraction import Compensation, contract_role_signal, employment_type_signal, extract_compensation
 from app.models import Job
 
 logger = logging.getLogger(__name__)
@@ -85,65 +86,28 @@ def _date(value: Any) -> datetime | None:
             return None
 
 
-def _number(value: Any) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return float(str(value).replace(",", "").replace("$", "").strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def _pay(data: dict[str, Any], description: str | None = None) -> tuple[float | None, float | None, str | None, str | None]:
+def _pay(data: dict[str, Any], description: str | None = None) -> Compensation:
     compensation = data.get("compensation") or data.get("salary") or data.get("pay")
-    if isinstance(compensation, dict):
-        merged = {**data, **compensation}
-    else:
-        merged = data
-    low = next((_number(merged.get(key)) for key in ("min_amount", "min", "minimum", "salaryMin", "salary_min", "minSalary") if merged.get(key) is not None), None)
-    high = next((_number(merged.get(key)) for key in ("max_amount", "max", "maximum", "salaryMax", "salary_max", "maxSalary") if merged.get(key) is not None), None)
+    merged = {**data, **compensation} if isinstance(compensation, dict) else data
+    low = next((merged.get(key) for key in ("min_amount", "min", "minimum", "salaryMin", "salary_min", "minSalary") if merged.get(key) is not None), None)
+    high = next((merged.get(key) for key in ("max_amount", "max", "maximum", "salaryMax", "salary_max", "maxSalary") if merged.get(key) is not None), None)
     currency = next((_text(merged.get(key)) for key in ("currency", "salaryCurrency", "salary_currency", "currencyCode") if merged.get(key)), None)
-    interval_raw = next((_text(merged.get(key)) for key in ("interval", "frequency", "period", "salaryInterval") if merged.get(key)), None)
-    interval = _interval(interval_raw)
-    if low is None and high is None and description:
-        match = re.search(r"(?:USD\s*)?\$\s*([\d,.]+)(?:\s*(?:-|–|to)\s*(?:USD\s*)?\$?\s*([\d,.]+))?\s*(?:/|per\s+)?(hour|hr|year|yr|month|week|day|annum|annually|hourly)?", description, re.I)
-        if match:
-            low = _number(match.group(1))
-            high = _number(match.group(2))
-            interval = _interval(match.group(3))
-            currency = "USD"
-    return low, high, currency.upper() if currency else None, interval
-
-
-def _interval(value: str | None) -> str | None:
-    raw = (value or "").lower()
-    for needle, normalized in (("hour", "hourly"), ("hr", "hourly"), ("year", "yearly"), ("annual", "yearly"), ("month", "monthly"), ("week", "weekly"), ("day", "daily")):
-        if needle in raw:
-            return normalized
-    return None
+    interval = next((_text(merged.get(key)) for key in ("interval", "frequency", "period", "salaryInterval", "salaryPeriod") if merged.get(key)), None)
+    text = " ".join(filter(None, (_text(compensation) if not isinstance(compensation, dict) else None, description)))
+    return extract_compensation(text, minimum=low, maximum=high, currency=currency, interval=interval)
 
 
 def _types(title: str, description: str | None, supplied: Any = None) -> tuple[str | None, str | None]:
-    raw = " ".join(filter(None, (title, description, _text(supplied)))).lower()
-    if re.search(r"\b(?:no\s+(?:c2c|1099)|w-?2\s+only)\b", raw):
-        employment = "w2"
-    elif re.search(r"\bc2c\b|corp[- ]to[- ]corp", raw):
-        employment = "c2c"
-    elif re.search(r"\b1099\b|independent contractor", raw):
-        employment = "1099"
-    elif re.search(r"\bw-?2\b", raw):
-        employment = "w2"
-    elif re.search(r"\bcontract(?:or)?\b|\bfreelance", raw):
-        employment = "contract"
-    else:
-        employment = None
-    if re.search(r"\bintern(?:ship)?\b", raw):
+    supplied_text = _text(supplied)
+    raw = " ".join(filter(None, (title, description, supplied_text)))
+    employment, _, _ = employment_type_signal(description, " ".join(filter(None, (title, supplied_text))))
+    if re.search(r"\bintern(?:ship)?\b", supplied_text or title, re.I):
         job_type = "internship"
-    elif re.search(r"\bpart[- ]?time\b", raw):
+    elif re.search(r"\bpart[- ]?time\b", supplied_text or title, re.I):
         job_type = "parttime"
-    elif re.search(r"\bcontract(?:or)?\b|\bfreelance|\btemporary\b|\btemp\b", raw):
+    elif re.search(r"\b(?:contract(?:or)?|freelance|temporary|temp)\b", supplied_text or "", re.I) or contract_role_signal(raw):
         job_type = "contract"
-    elif re.search(r"\bfull[- ]?time\b|\bpermanent\b", raw):
+    elif re.search(r"\bfull[- ]?time\b|\bpermanent\b|\bdirect[- ]hire\b", raw, re.I):
         job_type = "fulltime"
     else:
         job_type = None
@@ -178,8 +142,9 @@ def _job(source: str, data: dict[str, Any], *, title: Any, company: Any, locatio
     clean_description = _text(description)
     job_type, employment_type = _types(clean_title, clean_description, type_value)
     is_remote, is_us = _location_flags(clean_location, clean_title, clean_description, explicit_remote)
-    minimum, maximum, currency, interval = _pay(pay_data or data, clean_description)
-    return Job(id=_stable_id(source, external_id, clean_title, clean_company, clean_url), site=source, title=clean_title, company=clean_company, location=clean_location, job_url=clean_url, job_url_direct=clean_url, description=clean_description, job_type=job_type, employment_type=employment_type, interval=interval, min_amount=minimum, max_amount=maximum, currency=currency, is_remote=is_remote, is_us=is_us, date_posted=_date(date_posted), date_scraped=datetime.now(timezone.utc))
+    pay = _pay(pay_data or data, clean_description)
+    _, classification_source, classification_confidence = employment_type_signal(clean_description, clean_title)
+    return Job(id=_stable_id(source, external_id, clean_title, clean_company, clean_url), site=source, title=clean_title, company=clean_company, location=clean_location, job_url=clean_url, job_url_direct=clean_url, description=clean_description, job_type=job_type, employment_type=employment_type, interval=pay.interval, min_amount=pay.minimum, max_amount=pay.maximum, currency=pay.currency, pay_source=pay.source, pay_confidence=pay.confidence, pay_raw_text=pay.raw_text, classification_source=classification_source or ("structured" if type_value else None), classification_confidence=classification_confidence or ("high" if type_value else None), is_remote=is_remote, is_us=is_us, date_posted=_date(date_posted), date_scraped=datetime.now(timezone.utc))
 
 
 def _wanted(job: Job, request: ProviderRequest) -> bool:

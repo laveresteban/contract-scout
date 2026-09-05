@@ -6,13 +6,14 @@ import logging
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.config import APIFY_ACTOR_ID, APIFY_API_TOKEN, DEFAULT_RESULTS_PER_BOARD, SCRAPER_HOURS_OLD
+from app.config import APIFY_ACTOR_ID, APIFY_API_TOKEN, DEFAULT_RESULTS_PER_BOARD, JOB_STALE_DAYS, SCRAPER_HOURS_OLD
+from app.extraction import contract_role_signal, employment_type_signal, extract_compensation, normalize_interval, parse_compensation_text
 from app.models import Job, JobORM
 
 logger = logging.getLogger(__name__)
@@ -128,11 +129,7 @@ EMPLOYEE_ROLE_PATTERNS = [
     re.compile(r"\bfull[- ]?time\s+(?:employee|associate|staff|role|position)\b"),
     re.compile(r"\bemployee\s+(?:position|role)\b"),
     re.compile(r"\bpermanent\s+(?:employee|associate|staff|role|position)\b"),
-    re.compile(r"\bemployee\s+(?:benefits|stock\s+purchase|assistance\s+program)\b"),
-    re.compile(r"\b401\s*\(?k\)?\b"),
-    re.compile(r"\b(?:medical|dental|vision)\s+(?:insurance|benefits)\b"),
-    re.compile(r"\bpaid\s+(?:time\s+off|vacation|holidays)\b"),
-    re.compile(r"\bbenefits\s+package\b"),
+    re.compile(r"\bdirect[- ]hire\b"),
 ]
 
 # Strong remote work indicators.
@@ -208,10 +205,7 @@ def _keyword_matches(text: str | None, keyword: str) -> bool:
 
 def _text_indicates_contract_role(text: str | None) -> bool:
     """Detect genuine contract/freelance role wording."""
-    if not text:
-        return False
-    text = text.lower()
-    return any(p.search(text) for p in CONTRACT_ROLE_PATTERNS)
+    return contract_role_signal(text)
 
 
 def _text_indicates_employee_role(text: str | None) -> bool:
@@ -242,21 +236,8 @@ def _text_indicates_remote(title: str | None, description: str | None) -> bool:
 
 def _detect_employment_type(description: str | None, title: str | None) -> str | None:
     """Infer employment type from text: w2, 1099, c2c, contract."""
-    text = " ".join([description or "", title or ""]).lower()
-
-    # Explicit "W2 only" / "no C2C" / "no 1099" phrasing wins, since it would
-    # otherwise be misread by the plain c2c / 1099 substring checks below.
-    if any(p.search(text) for p in W2_ONLY_PATTERNS):
-        return "w2"
-    if re.search(r"\bc2c\b|corp[- ]to[- ]corp", text):
-        return "c2c"
-    if re.search(r"\b1099\b|independent contractor", text):
-        return "1099"
-    if re.search(r"\bw-?2\b|full[- ]time employee|employee position", text):
-        return "w2"
-    if _text_indicates_contract_role(text):
-        return "contract"
-    return None
+    employment_type, _, _ = employment_type_signal(description, title)
+    return employment_type
 
 
 def _parse_amount(value: Any) -> float | None:
@@ -270,26 +251,8 @@ def _parse_amount(value: Any) -> float | None:
 
 def _parse_pay_from_text(text: str | None) -> tuple[float | None, float | None, str | None]:
     """Extract a pay range and interval from free-text job descriptions."""
-    if not text:
-        return None, None, None
-
-    patterns = [
-        (r"salary\s*range\s*[:$]?\s*\$?([\d,]+)\s*(?:–|-|---)\s*\$?([\d,]+)\s*(?:per\s+year|annually|/year|a\s+year|yearly)?", "yearly"),
-        (r"salary[^.]{0,60}ranges?\s+between\s+\$?([\d,]+)\s+and\s+\$?([\d,]+)\s*(?:per\s+year|annually|/year|a\s+year|yearly)?", "yearly"),
-        (r"\$([\d,]+)\s*(?:–|-|---)\s*\$?([\d,]+)\s*(?:per\s+year|annually|/year|a\s+year|yearly)", "yearly"),
-        (r"\$([\d,]+)\s*(?:–|-|---)\s*\$?([\d,]+)\s*(?:per\s+hour|hourly|/hour)", "hourly"),
-        (r"\$([\d,]+)\s+(?:per\s+year|annually|/year|yearly)", "yearly"),
-        (r"\$([\d,]+)\s+(?:per\s+hour|hourly|/hour)", "hourly"),
-    ]
-
-    for pattern, interval in patterns:
-        m = re.search(pattern, text, re.IGNORECASE)
-        if m:
-            lo = float(m.group(1).replace(",", ""))
-            hi = float(m.group(2).replace(",", "")) if m.group(2) else None
-            return lo, hi, interval
-
-    return None, None, None
+    pay = parse_compensation_text(text)
+    return pay.minimum, pay.maximum, pay.interval
 
 
 def _matches_job_request(
@@ -301,28 +264,24 @@ def _matches_job_request(
     if not job_type and not employment_type:
         return True
 
+    jt = (job.job_type or "").lower()
+    et = (job.employment_type or "").lower()
     if job_type:
-        jt = (job.job_type or "").lower()
-        et = (job.employment_type or "").lower()
-        if job_type.lower() in jt or job_type.lower() in et:
-            return True
-        # Strong contract wording in title/description can also qualify.
-        if job_type.lower() == "contract" and _text_indicates_contract_role(
+        requested_job_type = job_type.lower()
+        type_matches = requested_job_type in jt or requested_job_type in et
+        if requested_job_type == "contract" and _text_indicates_contract_role(
             f"{job.title or ''} {job.description or ''}"
         ):
-            return True
-        if job_type.lower() == "contingent" and (
-            "contingent" in jt or "contingent" in et
-        ):
-            return True
-        return False
+            type_matches = True
+        if requested_job_type == "contingent" and ("contingent" in jt or "contingent" in et):
+            type_matches = True
+        if not type_matches:
+            return False
 
-    if employment_type:
-        jt = (job.job_type or "").lower()
-        et = (job.employment_type or "").lower()
-        if employment_type.lower() in et or employment_type.lower() in jt:
-            return True
-        return False
+    if employment_type and employment_type.lower() != "any":
+        requested_employment = employment_type.lower()
+        if requested_employment not in et and requested_employment not in jt:
+            return False
 
     return True
 
@@ -339,7 +298,14 @@ def _row_to_job(row: pd.Series) -> Job:
 
     description = str(row.get("description")) if pd.notna(row.get("description")) else None
     title = str(row.get("title")) if pd.notna(row.get("title")) else None
-    employment_type = _detect_employment_type(description, title)
+    employment_type, classification_source, classification_confidence = employment_type_signal(description, title)
+    pay = extract_compensation(
+        description,
+        minimum=row.get("min_amount"),
+        maximum=row.get("max_amount"),
+        currency=str(row.get("currency")) if pd.notna(row.get("currency")) else None,
+        interval=str(row.get("interval")) if pd.notna(row.get("interval")) else None,
+    )
 
     # Some sources don't tag remote in the location, but mention it in the title/description.
     if _text_indicates_onsite(title, description):
@@ -415,10 +381,15 @@ def _row_to_job(row: pd.Series) -> Job:
         description=description,
         job_type=inferred_job_type,
         employment_type=employment_type,
-        interval=str(row.get("interval")) if pd.notna(row.get("interval")) else None,
-        min_amount=_parse_amount(row.get("min_amount")),
-        max_amount=_parse_amount(row.get("max_amount")),
-        currency=str(row.get("currency")) if pd.notna(row.get("currency")) else None,
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
+        classification_source=classification_source or ("structured" if inferred_job_type else None),
+        classification_confidence=classification_confidence or ("high" if inferred_job_type else None),
         is_remote=is_remote,
         is_us=is_us,
         date_posted=date_posted,
@@ -457,7 +428,7 @@ def scrape_major_boards(
             word in base
             for word in ("contract", "freelance", "1099", "c2c", "corp-to-corp")
         )
-        terms = [search_term] if has_contract_term else []
+        terms = [search_term] if has_contract_term else [f"{search_term} contract", f"contract {search_term}", f"{search_term} contract-to-hire"]
         et = (employment_type or "").lower()
         if et == "w2":
             # W2 contract roles use very specific phrasing; target it directly
@@ -527,9 +498,6 @@ def scrape_major_boards(
                             jobs.append(job)
             except Exception as exc:
                 logger.warning("Failed to parse job row: %s", exc)
-
-        if len(jobs) >= results_wanted:
-            break
 
     logger.info("Major board scrape finished, found %d jobs", len(jobs))
     return jobs[:results_wanted]
@@ -665,6 +633,13 @@ def _build_remoteok_job(
     else:
         min_amount = None
         max_amount = None
+    pay = extract_compensation(
+        description,
+        minimum=min_amount,
+        maximum=max_amount,
+        currency="USD" if min_amount is not None or max_amount is not None else None,
+        interval=interval,
+    )
 
     return Job(
         id=f"remoteok-{hashlib.md5(raw_id.encode()).hexdigest()[:16]}",
@@ -676,10 +651,13 @@ def _build_remoteok_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=interval,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency="USD" if min_amount or max_amount else None,
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_iso_date(item.get("date")),
@@ -737,7 +715,7 @@ def _build_weworkremotely_job(
     ):
         return None
 
-    min_amount, max_amount, interval = _parse_pay_from_text(text)
+    pay = extract_compensation(text)
 
     job_url = item.findtext("link") or ""
     return Job(
@@ -750,10 +728,13 @@ def _build_weworkremotely_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=interval,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency="USD" if min_amount or max_amount else None,
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_rss_date(item.findtext("pubDate")),
@@ -893,6 +874,13 @@ def _build_jobicy_job(
     interval = (item.get("salaryPeriod") or "").lower() if item.get("salaryPeriod") else None
     if min_amount is not None and max_amount is not None and not interval:
         interval = _infer_interval_from_amounts(min_amount, max_amount)
+    pay = extract_compensation(
+        description,
+        minimum=min_amount,
+        maximum=max_amount,
+        currency=item.get("salaryCurrency"),
+        interval=interval,
+    )
 
     return Job(
         id=f"jobicy-{item.get('id')}",
@@ -904,10 +892,13 @@ def _build_jobicy_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=interval,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency=item.get("salaryCurrency") or ("USD" if min_amount or max_amount else None),
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_iso_date(item.get("pubDate")),
@@ -1004,6 +995,13 @@ def _build_remotive_job(
     min_amount, max_amount, interval = _parse_remotive_salary(item.get("salary"))
     if min_amount is not None and max_amount is not None and not interval:
         interval = _infer_interval_from_amounts(min_amount, max_amount)
+    pay = extract_compensation(
+        " ".join(filter(None, (item.get("salary"), description))),
+        minimum=min_amount,
+        maximum=max_amount,
+        currency="USD" if min_amount is not None or max_amount is not None else None,
+        interval=interval,
+    )
 
     tags = item.get("tags", [])
     return Job(
@@ -1016,10 +1014,13 @@ def _build_remotive_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=interval,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency="USD" if min_amount or max_amount else None,
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_iso_date(item.get("publication_date")),
@@ -1169,6 +1170,13 @@ def _build_himalayas_job(
         interval = _infer_interval_from_amounts(min_amount, max_amount)
     else:
         interval = None
+    pay = extract_compensation(
+        description,
+        minimum=min_amount,
+        maximum=max_amount,
+        currency=item.get("currency"),
+        interval=interval,
+    )
 
     job_url = item.get("applicationLink") or item.get("guid") or ""
     raw_id = item.get("guid") or job_url or title
@@ -1182,10 +1190,13 @@ def _build_himalayas_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=interval,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency=(item.get("currency") or ("USD" if min_amount or max_amount else None)),
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_iso_date(item.get("pubDate")),
@@ -1326,6 +1337,13 @@ def _build_apify_job(
     interval = _interval_from_string(str(item.get("salary_unit") or ""))
     if min_amount is not None and max_amount is not None and not interval:
         interval = _infer_interval_from_amounts(min_amount, max_amount)
+    pay = extract_compensation(
+        description,
+        minimum=min_amount,
+        maximum=max_amount,
+        currency=str(item.get("salary_currency")) if item.get("salary_currency") else None,
+        interval=interval,
+    )
 
     job_url = item.get("url") or item.get("apply_url") or ""
     raw_id = job_url or title
@@ -1339,10 +1357,13 @@ def _build_apify_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=interval,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency=str(item.get("salary_currency")) if item.get("salary_currency") else None,
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_iso_date(item.get("posted_at")),
@@ -1510,12 +1531,24 @@ def _build_dice_job(
     if not inferred_job_type and _text_indicates_contract_role(text):
         inferred_job_type = "contract"
 
-    inferred_employment_type = _detect_employment_type(description, title)
+    inferred_employment_type, classification_source, classification_confidence = employment_type_signal(description, title)
     if not inferred_employment_type:
         if str(item.get("employmentType") or "").lower().startswith("third"):
             inferred_employment_type = "c2c"
+            classification_source = "structured"
+            classification_confidence = "high"
         elif inferred_job_type == "contract":
             inferred_employment_type = "contract"
+            classification_source = "structured"
+            classification_confidence = "high"
+    pay_text = " ".join(str(item.get(key) or "") for key in ("salary", "compensation", "payRate", "summary"))
+    pay = extract_compensation(
+        pay_text,
+        minimum=item.get("salaryMin") or item.get("minSalary"),
+        maximum=item.get("salaryMax") or item.get("maxSalary"),
+        currency=item.get("salaryCurrency") or item.get("currency"),
+        interval=item.get("salaryUnit") or item.get("salaryPeriod"),
+    )
 
     if not _matches_job_request(
         Job(
@@ -1545,15 +1578,76 @@ def _build_dice_job(
         description=description,
         job_type=inferred_job_type,
         employment_type=inferred_employment_type,
-        interval=None,
-        min_amount=None,
-        max_amount=None,
-        currency=None,
+        interval=pay.interval,
+        min_amount=pay.minimum,
+        max_amount=pay.maximum,
+        currency=pay.currency,
+        pay_source=pay.source,
+        pay_confidence=pay.confidence,
+        pay_raw_text=pay.raw_text,
+        classification_source=classification_source or ("structured" if inferred_job_type else None),
+        classification_confidence=classification_confidence or ("high" if inferred_job_type else None),
         is_remote=is_remote,
         is_us=is_us,
         date_posted=_parse_iso_date(item.get("postedDate")),
         date_scraped=datetime.utcnow(),
     )
+
+
+def _dice_detail(html_text: str) -> tuple[str | None, Any, Any, str | None, str | None]:
+    for match in re.finditer(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html_text, re.I | re.S):
+        try:
+            payload = json.loads(html.unescape(match.group(1)).strip())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        nodes = payload if isinstance(payload, list) else payload.get("@graph", [payload]) if isinstance(payload, dict) else []
+        for node in nodes:
+            if not isinstance(node, dict) or "JobPosting" not in str(node.get("@type", "")):
+                continue
+            description = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(str(node.get("description") or "")))).strip() or None
+            salary = node.get("baseSalary") or node.get("estimatedSalary") or {}
+            salary = salary[0] if isinstance(salary, list) and salary else salary
+            value = salary.get("value", {}) if isinstance(salary, dict) else {}
+            if not isinstance(value, dict):
+                value = {"value": value}
+            minimum = value.get("minValue", value.get("value"))
+            maximum = value.get("maxValue", value.get("value"))
+            currency = salary.get("currency") if isinstance(salary, dict) else None
+            interval = value.get("unitText")
+            return description, minimum, maximum, currency, interval
+    return None, None, None, None, None
+
+
+async def _enrich_dice_job(client: httpx.AsyncClient, job: Job, semaphore: asyncio.Semaphore) -> Job:
+    if not job.job_url:
+        return job
+    try:
+        async with semaphore:
+            response = await client.get(job.job_url, headers={"User-Agent": _DICE_UA, "Accept": "text/html"})
+            response.raise_for_status()
+        description, minimum, maximum, currency, interval = _dice_detail(response.text)
+        text = description or response.text
+        pay = extract_compensation(text, minimum=minimum, maximum=maximum, currency=currency, interval=interval)
+        if description and len(description) > len(job.description or ""):
+            job.description = description
+            employment_type, source, confidence = employment_type_signal(description, job.title)
+            if employment_type:
+                job.employment_type = employment_type
+                job.classification_source = source
+                job.classification_confidence = confidence
+            if contract_role_signal(f"{job.title} {description}"):
+                job.job_type = "contract"
+        if pay.minimum is not None or pay.maximum is not None:
+            job.min_amount = pay.minimum
+            job.max_amount = pay.maximum
+            job.currency = pay.currency
+            job.interval = pay.interval
+            job.pay_source = pay.source
+            job.pay_confidence = pay.confidence
+            job.pay_raw_text = pay.raw_text
+    except Exception as exc:
+        logger.debug("Dice detail enrichment failed for %s: %s", job.job_url, type(exc).__name__)
+    return job
 
 
 async def _scrape_dice(
@@ -1636,6 +1730,9 @@ async def _scrape_dice(
         if len(jobs) >= results_wanted or len(items) < 30:
             break
 
+    if jobs:
+        semaphore = asyncio.Semaphore(5)
+        jobs = list(await asyncio.gather(*(_enrich_dice_job(client, job, semaphore) for job in jobs)))
     logger.info("Dice returned %d matching jobs", len(jobs))
     return jobs
 
@@ -1849,34 +1946,92 @@ def _dedup_key(job: Job) -> str:
 _COMPUTED_FIELDS = {
     "normalized_min_yearly",
     "normalized_max_yearly",
+    "normalized_min_hourly",
+    "normalized_max_hourly",
     "normalized_currency",
     "eligibility",
 }
 
 
+def _source_urls(existing: str | None, job: Job) -> str:
+    try:
+        values = json.loads(existing or "[]")
+    except (json.JSONDecodeError, TypeError):
+        values = []
+    entry = {"site": job.site, "url": job.job_url or job.job_url_direct}
+    if entry not in values:
+        values.append(entry)
+    return json.dumps(values)
+
+
+def _merge_job(existing: JobORM, job: Job) -> None:
+    existing.last_seen = datetime.utcnow()
+    existing.date_scraped = job.date_scraped or datetime.utcnow()
+    existing.is_active = True
+    existing.quality_version = 2
+    existing.source_urls = _source_urls(existing.source_urls, job)
+    if len(job.description or "") > len(existing.description or ""):
+        existing.description = job.description
+    for name in ("job_url", "job_url_direct", "location", "date_posted"):
+        if getattr(existing, name) is None and getattr(job, name) is not None:
+            setattr(existing, name, getattr(job, name))
+    rank = {None: 0, "low": 1, "medium": 2, "high": 3}
+    existing_pay_count = int(existing.min_amount is not None) + int(existing.max_amount is not None)
+    incoming_pay_count = int(job.min_amount is not None) + int(job.max_amount is not None)
+    if incoming_pay_count and (not existing_pay_count or rank.get(job.pay_confidence, 0) >= rank.get(existing.pay_confidence, 0) or incoming_pay_count > existing_pay_count):
+        for name in ("min_amount", "max_amount", "currency", "interval", "pay_source", "pay_confidence", "pay_raw_text"):
+            value = getattr(job, name)
+            if value is not None:
+                setattr(existing, name, value)
+        existing.normalized_min_yearly = job.normalized_min_yearly
+        existing.normalized_max_yearly = job.normalized_max_yearly
+        existing.normalized_min_hourly = job.normalized_min_hourly
+        existing.normalized_max_hourly = job.normalized_max_hourly
+    if rank.get(job.classification_confidence, 0) >= rank.get(existing.classification_confidence, 0):
+        for name in ("job_type", "employment_type", "classification_source", "classification_confidence"):
+            value = getattr(job, name)
+            if value is not None:
+                setattr(existing, name, value)
+    existing.is_remote = existing.is_remote or job.is_remote
+    existing.is_us = existing.is_us or job.is_us
+    existing.raw_data = json.dumps(job.model_dump(mode="json"))
+
+
 def save_jobs(jobs: list[Job], db: Session) -> int:
-    """Persist jobs to SQLite, skipping exact-id and cross-source duplicates."""
+    """Persist jobs to SQLite, merging exact-id and cross-source duplicates."""
     count = 0
-    # Track keys added in this batch so intra-batch duplicates are caught too.
-    batch_keys: set[str] = set()
+    batch: dict[str, JobORM] = {}
     for job in jobs:
         key = _dedup_key(job)
-        existing = db.query(JobORM).filter(JobORM.id == job.id).first()
+        existing = batch.get(key) or db.query(JobORM).filter(JobORM.id == job.id).first()
+        if not existing:
+            existing = db.query(JobORM).filter(JobORM.dedup_key == key).first()
         if existing:
+            _merge_job(existing, job)
             continue
-        if key in batch_keys or db.query(JobORM.id).filter(JobORM.dedup_key == key).first():
-            logger.debug("Skipping cross-source duplicate: %s @ %s", job.title, job.company)
-            continue
-        payload = job.model_dump(exclude_none=True, exclude={"date_posted", *_COMPUTED_FIELDS})
+        payload = job.model_dump(exclude_none=True, exclude={"date_posted", "source_urls", *_COMPUTED_FIELDS})
         orm = JobORM(**payload)
         orm.date_posted = job.date_posted
-        # Persist the yearly-USD-normalized pay so it can be filtered/sorted in SQL.
         orm.normalized_min_yearly = job.normalized_min_yearly
         orm.normalized_max_yearly = job.normalized_max_yearly
+        orm.normalized_min_hourly = job.normalized_min_hourly
+        orm.normalized_max_hourly = job.normalized_max_hourly
         orm.dedup_key = key
+        orm.source_urls = _source_urls(None, job)
+        orm.last_seen = job.date_scraped or datetime.utcnow()
+        orm.is_active = True
         orm.raw_data = json.dumps(job.model_dump(mode="json"))
         db.add(orm)
-        batch_keys.add(key)
+        batch[key] = orm
         count += 1
+    db.commit()
+    return count
+
+
+def mark_stale_jobs(db: Session) -> int:
+    cutoff = datetime.utcnow() - timedelta(days=JOB_STALE_DAYS)
+    count = db.query(JobORM).filter(JobORM.is_active.is_(True), JobORM.last_seen < cutoff).update(
+        {JobORM.is_active: False}, synchronize_session=False
+    )
     db.commit()
     return count

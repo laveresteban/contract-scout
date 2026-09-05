@@ -22,7 +22,7 @@ def _positive_terms(query: str | None) -> str:
     return " ".join(p for p in query.split() if not p.startswith("-"))
 
 
-def _record_run(db: Session, source, trigger, status, found, saved, started, error=None):
+def _record_run(db: Session, source, trigger, status, found, saved, started, error=None, jobs=None):
     now = datetime.utcnow()
     run = ScrapeRunORM(
         source=source,
@@ -30,6 +30,9 @@ def _record_run(db: Session, source, trigger, status, found, saved, started, err
         status=status,
         jobs_found=found,
         jobs_saved=saved,
+        jobs_with_pay=sum(1 for job in jobs or [] if job.min_amount is not None or job.max_amount is not None),
+        hourly_jobs=sum(1 for job in jobs or [] if job.interval == "hourly"),
+        contract_jobs=sum(1 for job in jobs or [] if "contract" in (job.job_type or "").lower()),
         duration_ms=int((now - started).total_seconds() * 1000),
         error=(str(error)[:1000] if error else None),
         started_at=started,
@@ -103,9 +106,10 @@ async def run_scrape(
             source_saved = scraper.save_jobs(jobs, db)
             scraped += len(jobs)
             saved += source_saved
-            _record_run(db, source, trigger, "success", len(jobs), source_saved, started)
+            _record_run(db, source, trigger, "success", len(jobs), source_saved, started, jobs=jobs)
         except Exception as exc:
             logger.warning("%s scrape failed: %s", source, exc)
             _record_run(db, source, trigger, "error", 0, 0, started, error=exc)
 
-    return {"scraped": scraped, "saved": saved}
+    stale = scraper.mark_stale_jobs(db)
+    return {"scraped": scraped, "saved": saved, "marked_inactive": stale}

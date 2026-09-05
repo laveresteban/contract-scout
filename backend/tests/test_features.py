@@ -1,9 +1,11 @@
+from datetime import datetime, timedelta
+
 import pytest
 
 from app.auth import create_access_token
 from app.models import JobORM, UserORM
 from app.normalize import classify_eligibility, normalize_amount
-from app.scraper import _dedup_key, save_jobs
+from app.scraper import _dedup_key, mark_stale_jobs, save_jobs
 from app.models import Job
 
 
@@ -94,6 +96,28 @@ def test_annual_sort_ranks_hourly_above_lower_salary(client, db):
     assert ids.index("hr-100") < ids.index("ft-150k")
 
 
+def test_min_yearly_filter_includes_single_ended_rate(client, db):
+    save_jobs(
+        [
+            Job(
+                id="hourly-from",
+                site="dice",
+                title="Contract Engineer",
+                company="Acme",
+                interval="hourly",
+                min_amount=100,
+                currency="USD",
+                job_type="contract",
+                is_remote=True,
+                is_us=True,
+            )
+        ],
+        db,
+    )
+    ids = {job["id"] for job in client.get("/api/v1/jobs?min_yearly=208000").json()}
+    assert ids == {"hourly-from"}
+
+
 # --- Eligibility ------------------------------------------------------------
 def test_classify_eligibility():
     assert classify_eligibility("Remote, United States", True, True) == "explicit_us"
@@ -115,6 +139,61 @@ def test_save_jobs_skips_cross_source_duplicates(db):
     ]
     saved = save_jobs(jobs, db)
     assert saved == 1
+
+
+def test_save_jobs_merges_richer_duplicate(db):
+    save_jobs(
+        [Job(id="dice-1", site="dice", title="Python Dev", company="Acme", description="Short summary", is_remote=True, is_us=True)],
+        db,
+    )
+    changed = save_jobs(
+        [
+            Job(
+                id="indeed-1",
+                site="indeed",
+                title="Python Dev",
+                company="Acme Inc",
+                description="Longer contract description with compensation details",
+                job_url="https://example.com/job",
+                interval="hourly",
+                min_amount=85,
+                max_amount=105,
+                currency="USD",
+                pay_source="structured",
+                pay_confidence="high",
+                pay_raw_text="$85-$105/hr",
+                is_remote=True,
+                is_us=True,
+            )
+        ],
+        db,
+    )
+    merged = db.query(JobORM).one()
+    assert changed == 0
+    assert merged.min_amount == 85
+    assert merged.max_amount == 105
+    assert merged.interval == "hourly"
+    assert merged.description.startswith("Longer")
+    assert merged.pay_source == "structured"
+    assert "indeed" in merged.source_urls
+
+
+def test_mark_stale_jobs_hides_expired_results(client, db):
+    db.add(
+        JobORM(
+            id="stale",
+            site="indeed",
+            title="Old Contract",
+            company="Acme",
+            is_remote=True,
+            is_us=True,
+            is_active=True,
+            last_seen=datetime.utcnow() - timedelta(days=31),
+        )
+    )
+    db.commit()
+    assert mark_stale_jobs(db) == 1
+    assert client.get("/api/v1/jobs").json() == []
 
 
 # --- Stats / count ----------------------------------------------------------
