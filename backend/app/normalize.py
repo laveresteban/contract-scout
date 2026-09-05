@@ -46,6 +46,13 @@ def normalize_amount(amount: float | None, interval: str | None, currency: str |
     return round(amount * multiplier * rate, 2)
 
 
+def normalize_hourly_amount(amount: float | None, interval: str | None, currency: str | None) -> float | None:
+    yearly = normalize_amount(amount, interval, currency)
+    if yearly is None:
+        return None
+    return round(yearly / float(HOURS_PER_YEAR), 2)
+
+
 def classify_eligibility(location: str | None, is_remote: bool, is_us: bool) -> str:
     """Classify how confident we are that a job is US-eligible.
 

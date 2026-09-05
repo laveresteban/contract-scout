@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 from sqlalchemy import Column, DateTime, Float, Integer, String, Text, Boolean, ForeignKey, create_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from app.config import DATABASE_URL
-from app.normalize import classify_eligibility, normalize_amount
+from app.extraction import employment_type_signal, extract_compensation, job_type_signal
+from app.normalize import classify_eligibility, normalize_amount, normalize_hourly_amount
 
 Base = declarative_base()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -34,6 +35,17 @@ class JobORM(Base):
     # yearly full-time salaries can be filtered and sorted on one scale.
     normalized_min_yearly = Column(Float, index=True)
     normalized_max_yearly = Column(Float, index=True)
+    normalized_min_hourly = Column(Float, index=True)
+    normalized_max_hourly = Column(Float, index=True)
+    pay_source = Column(String)
+    pay_confidence = Column(String)
+    pay_raw_text = Column(Text)
+    classification_source = Column(String)
+    classification_confidence = Column(String)
+    quality_version = Column(Integer, default=2)
+    source_urls = Column(Text)
+    is_active = Column(Boolean, index=True, default=True)
+    last_seen = Column(DateTime, default=datetime.utcnow)
     is_remote = Column(Boolean, index=True, default=False)
     is_us = Column(Boolean, index=True, default=False)
     date_posted = Column(DateTime)
@@ -103,6 +115,9 @@ class ScrapeRunORM(Base):
     status = Column(String, index=True)  # success, error
     jobs_found = Column(Integer, default=0)
     jobs_saved = Column(Integer, default=0)
+    jobs_with_pay = Column(Integer, default=0)
+    hourly_jobs = Column(Integer, default=0)
+    contract_jobs = Column(Integer, default=0)
     duration_ms = Column(Integer)
     error = Column(Text)
     started_at = Column(DateTime, default=datetime.utcnow)
@@ -124,6 +139,15 @@ class Job(BaseModel):
     min_amount: Optional[float] = None
     max_amount: Optional[float] = None
     currency: Optional[str] = None
+    pay_source: Optional[str] = None
+    pay_confidence: Optional[str] = None
+    pay_raw_text: Optional[str] = None
+    classification_source: Optional[str] = None
+    classification_confidence: Optional[str] = None
+    quality_version: int = 2
+    source_urls: Optional[str] = None
+    is_active: bool = True
+    last_seen: Optional[datetime] = None
     is_remote: bool = False
     is_us: bool = False
     date_posted: Optional[datetime] = None
@@ -131,6 +155,41 @@ class Job(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode="after")
+    def infer_quality_fields(self):
+        pay = extract_compensation(
+            self.description,
+            minimum=self.min_amount,
+            maximum=self.max_amount,
+            currency=self.currency,
+            interval=self.interval,
+        )
+        if pay.minimum is not None or pay.maximum is not None:
+            self.min_amount = pay.minimum
+            self.max_amount = pay.maximum
+            self.currency = pay.currency
+            self.interval = pay.interval
+            self.pay_source = self.pay_source or pay.source
+            self.pay_confidence = self.pay_confidence or pay.confidence
+            self.pay_raw_text = self.pay_raw_text or pay.raw_text
+        employment_type, employment_source, employment_confidence = employment_type_signal(self.description, self.title)
+        job_type, job_source, job_confidence = job_type_signal(self.description, self.title)
+        if employment_type and (not self.employment_type or employment_confidence == "high"):
+            self.employment_type = employment_type
+        if job_type and (not self.job_type or job_confidence == "high"):
+            self.job_type = job_type
+        if job_type == "fulltime" and job_confidence == "high" and not employment_type:
+            self.employment_type = "w2"
+            employment_source = job_source
+            employment_confidence = job_confidence
+        if employment_confidence == "high" or job_confidence == "high":
+            self.classification_source = employment_source or job_source
+            self.classification_confidence = employment_confidence or job_confidence
+        else:
+            self.classification_source = self.classification_source or employment_source or job_source
+            self.classification_confidence = self.classification_confidence or employment_confidence or job_confidence
+        return self
 
     @computed_field
     @property
@@ -141,6 +200,16 @@ class Job(BaseModel):
     @property
     def normalized_max_yearly(self) -> Optional[float]:
         return normalize_amount(self.max_amount, self.interval, self.currency)
+
+    @computed_field
+    @property
+    def normalized_min_hourly(self) -> Optional[float]:
+        return normalize_hourly_amount(self.min_amount, self.interval, self.currency)
+
+    @computed_field
+    @property
+    def normalized_max_hourly(self) -> Optional[float]:
+        return normalize_hourly_amount(self.max_amount, self.interval, self.currency)
 
     @computed_field
     @property
@@ -240,6 +309,9 @@ class ScrapeRun(BaseModel):
     status: str
     jobs_found: int = 0
     jobs_saved: int = 0
+    jobs_with_pay: int = 0
+    hourly_jobs: int = 0
+    contract_jobs: int = 0
     duration_ms: Optional[int] = None
     error: Optional[str] = None
     started_at: Optional[datetime] = None
@@ -256,6 +328,12 @@ class SourceHealth(BaseModel):
     last_duration_ms: Optional[int] = None
     last_jobs_found: int = 0
     last_error: Optional[str] = None
+    stored_jobs: int = 0
+    contract_jobs: int = 0
+    jobs_with_pay: int = 0
+    hourly_jobs: int = 0
+    pay_coverage: float = 0
+    hourly_coverage: float = 0
 
 
 class ScrapeHealth(BaseModel):

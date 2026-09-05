@@ -11,6 +11,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'jobs.db'}")
 DEFAULT_RESULTS_PER_BOARD = int(os.getenv("RESULTS_PER_BOARD", "25"))
 MAX_RESULTS_PER_BOARD = int(os.getenv("MAX_RESULTS_PER_BOARD", "100"))
 SCRAPER_HOURS_OLD = int(os.getenv("SCRAPER_HOURS_OLD", "168"))  # 7 days
+JOB_STALE_DAYS = int(os.getenv("JOB_STALE_DAYS", "30"))
 
 # Apify integration (optional)
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
