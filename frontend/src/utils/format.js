@@ -55,11 +55,10 @@ const INTERVAL_SUFFIX = {
 }
 
 export function formatPay(job) {
-  const parts = []
-  if (job.min_amount != null) parts.push(formatCurrency(job.min_amount, job.currency))
-  if (job.max_amount != null) parts.push(formatCurrency(job.max_amount, job.currency))
-  if (!parts.length) return null
-  let label = parts.join(' – ')
+  const minimum = job.min_amount != null ? formatCurrency(job.min_amount, job.currency) : null
+  const maximum = job.max_amount != null ? formatCurrency(job.max_amount, job.currency) : null
+  if (!minimum && !maximum) return null
+  let label = minimum && maximum ? (minimum === maximum ? minimum : `${minimum} – ${maximum}`) : minimum ? `From ${minimum}` : `Up to ${maximum}`
   if (job.interval) label += ` ${INTERVAL_SUFFIX[job.interval] || `/ ${job.interval}`}`
   return label
 }
@@ -74,6 +73,8 @@ export function formatAnnualPay(job) {
   if (min != null && max != null && min !== max) {
     return `${formatCompactUSD(min)} – ${formatCompactUSD(max)}/yr`
   }
+  if (min != null && max == null) return `From ${formatCompactUSD(min)}/yr`
+  if (max != null && min == null) return `Up to ${formatCompactUSD(max)}/yr`
   return `${formatCompactUSD(max ?? min)}/yr`
 }
 
