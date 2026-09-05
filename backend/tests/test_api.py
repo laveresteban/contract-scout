@@ -163,8 +163,10 @@ def test_search_jobs(client, monkeypatch):
     assert data["saved"] == 2
 
     health = client.get("/api/v1/scrape/health").json()
-    health_sources = {source["source"] for source in health["sources"]}
+    health_sources = {source["source"]: source for source in health["sources"]}
     assert {"indeed", "remoteok"}.issubset(health_sources)
+    assert health_sources["indeed"]["stored_jobs"] == 1
+    assert "pay_coverage" in health_sources["indeed"]
 
     response = client.get("/api/v1/jobs?source=remoteok")
     assert response.status_code == 200

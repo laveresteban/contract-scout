@@ -59,6 +59,9 @@ function ScrapeHealthPanel() {
                   <th>Source</th>
                   <th>Status</th>
                   <th>Found</th>
+                  <th>Stored</th>
+                  <th>Pay</th>
+                  <th>Hourly</th>
                   <th>Duration</th>
                   <th>Last run</th>
                 </tr>
@@ -73,6 +76,9 @@ function ScrapeHealthPanel() {
                       </span>
                     </td>
                     <td>{s.last_jobs_found}</td>
+                    <td>{s.stored_jobs}</td>
+                    <td>{s.pay_coverage}%</td>
+                    <td>{s.hourly_coverage}%</td>
                     <td>{s.last_duration_ms != null ? `${s.last_duration_ms} ms` : '—'}</td>
                     <td title={s.last_error || ''}>
                       {s.last_run_at ? formatRelativeTime(s.last_run_at) : '—'}

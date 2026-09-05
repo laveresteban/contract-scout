@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app import config, scheduler
@@ -255,6 +255,21 @@ def scrape_health(db: Session = Depends(get_db)):
                 last_jobs_found=run.jobs_found or 0,
                 last_error=run.error,
             )
+    quality = db.query(
+        JobORM.site,
+        func.count(JobORM.id),
+        func.sum(case((JobORM.job_type.ilike("%contract%"), 1), else_=0)),
+        func.sum(case((JobORM.min_amount.isnot(None) | JobORM.max_amount.isnot(None), 1), else_=0)),
+        func.sum(case((JobORM.interval == "hourly", 1), else_=0)),
+    ).group_by(JobORM.site).all()
+    for source, stored, contracts, with_pay, hourly in quality:
+        health = sources.setdefault(source or "unknown", SourceHealth(source=source or "unknown"))
+        health.stored_jobs = stored or 0
+        health.contract_jobs = contracts or 0
+        health.jobs_with_pay = with_pay or 0
+        health.hourly_jobs = hourly or 0
+        health.pay_coverage = round(100 * health.jobs_with_pay / health.stored_jobs, 1) if health.stored_jobs else 0
+        health.hourly_coverage = round(100 * health.hourly_jobs / health.stored_jobs, 1) if health.stored_jobs else 0
     next_run = scheduler.next_run_time()
     return ScrapeHealth(
         scheduler_enabled=next_run is not None,
