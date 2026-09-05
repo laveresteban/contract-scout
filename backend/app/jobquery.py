@@ -3,7 +3,7 @@
 Extracted from the API layer so the alert engine can reuse the exact same
 filtering semantics that users see in the UI.
 """
-from sqlalchemy import case, or_
+from sqlalchemy import case, func, or_
 
 from app.models import JobFilterRequest, JobORM
 
@@ -19,6 +19,7 @@ def parse_query(query):
 
 
 def apply_filters(query, filters: JobFilterRequest):
+    query = query.filter(or_(JobORM.is_active.is_(True), JobORM.is_active.is_(None)))
     positive, negative = parse_query(filters.query)
     if positive:
         like = f"%{positive}%"
@@ -47,15 +48,15 @@ def apply_filters(query, filters: JobFilterRequest):
     if filters.employment_type:
         query = query.filter(JobORM.employment_type.ilike(f"%{filters.employment_type}%"))
     if filters.min_pay is not None:
-        query = query.filter(JobORM.max_amount >= filters.min_pay)
+        query = query.filter(func.coalesce(JobORM.max_amount, JobORM.min_amount) >= filters.min_pay)
     if filters.max_pay is not None:
-        query = query.filter(JobORM.min_amount <= filters.max_pay)
+        query = query.filter(func.coalesce(JobORM.min_amount, JobORM.max_amount) <= filters.max_pay)
     # Yearly-USD-normalized pay filters. A job qualifies for a floor when the top
     # of its range clears it, and for a ceiling when the bottom is under it.
     if filters.min_yearly is not None:
-        query = query.filter(JobORM.normalized_max_yearly >= filters.min_yearly)
+        query = query.filter(func.coalesce(JobORM.normalized_max_yearly, JobORM.normalized_min_yearly) >= filters.min_yearly)
     if filters.max_yearly is not None:
-        query = query.filter(JobORM.normalized_min_yearly <= filters.max_yearly)
+        query = query.filter(func.coalesce(JobORM.normalized_min_yearly, JobORM.normalized_max_yearly) <= filters.max_yearly)
     if filters.pay_interval:
         query = query.filter(JobORM.interval.ilike(f"%{filters.pay_interval}%"))
     if filters.source:
