@@ -53,40 +53,43 @@ function ScrapeHealthPanel() {
               : 'disabled'}
           </p>
           {health?.sources?.length ? (
-            <table className="scrape-health-table">
-              <thead>
-                <tr>
-                  <th>Source</th>
-                  <th>Status</th>
-                  <th>Found</th>
-                  <th>Stored</th>
-                  <th>Pay</th>
-                  <th>Hourly</th>
-                  <th>Duration</th>
-                  <th>Last run</th>
-                </tr>
-              </thead>
-              <tbody>
-                {health.sources.map((s) => (
-                  <tr key={s.source}>
-                    <td>{SOURCE_LABELS[s.source] || s.source}</td>
-                    <td>
-                      <span className={`health-status health-status--${s.last_status}`}>
-                        {s.last_status || 'n/a'}
-                      </span>
-                    </td>
-                    <td>{s.last_jobs_found}</td>
-                    <td>{s.stored_jobs}</td>
-                    <td>{s.pay_coverage}%</td>
-                    <td>{s.hourly_coverage}%</td>
-                    <td>{s.last_duration_ms != null ? `${s.last_duration_ms} ms` : '—'}</td>
-                    <td title={s.last_error || ''}>
-                      {s.last_run_at ? formatRelativeTime(s.last_run_at) : '—'}
-                    </td>
+            <div className="scrape-health-table-wrap">
+              <table className="scrape-health-table">
+                <caption className="sr-only">Recent scraping results by source</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Source</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Found</th>
+                    <th scope="col">Stored</th>
+                    <th scope="col">Pay</th>
+                    <th scope="col">Hourly</th>
+                    <th scope="col">Duration</th>
+                    <th scope="col">Last run</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {health.sources.map((s) => (
+                    <tr key={s.source}>
+                      <td>{SOURCE_LABELS[s.source] || s.source}</td>
+                      <td>
+                        <span className={`health-status health-status--${s.last_status}`}>
+                          {s.last_status || 'n/a'}
+                        </span>
+                      </td>
+                      <td>{s.last_jobs_found}</td>
+                      <td>{s.stored_jobs}</td>
+                      <td>{s.pay_coverage}%</td>
+                      <td>{s.hourly_coverage}%</td>
+                      <td>{s.last_duration_ms != null ? `${s.last_duration_ms} ms` : '—'}</td>
+                      <td title={s.last_error || ''}>
+                        {s.last_run_at ? formatRelativeTime(s.last_run_at) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p className="status">No scrape runs recorded yet.</p>
           )}

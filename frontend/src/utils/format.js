@@ -34,11 +34,19 @@ export function formatRelativeTime(dateString) {
   if (!dateString) return null
   const d = new Date(dateString)
   if (Number.isNaN(d.getTime())) return null
-  const now = new Date()
-  const seconds = Math.floor((now - d) / 1000)
+  const deltaSeconds = Math.floor((d - new Date()) / 1000)
+  const future = deltaSeconds > 0
+  const seconds = Math.abs(deltaSeconds)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
+  if (future) {
+    if (seconds < 60) return 'in less than a minute'
+    if (minutes < 60) return `in ${minutes}m`
+    if (hours < 24) return `in ${hours}h`
+    if (days < 7) return `in ${days}d`
+    return formatDate(dateString)
+  }
   if (seconds < 60) return 'just now'
   if (minutes < 60) return `${minutes}m ago`
   if (hours < 24) return `${hours}h ago`

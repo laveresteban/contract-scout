@@ -121,7 +121,7 @@ function SearchFilters({
   useEffect(() => {
     const handleKeyDown = (e) => {
       const active = document.activeElement
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
         return
       }
 
@@ -214,7 +214,6 @@ function SearchFilters({
     setCompany(value)
     setShowCompanySuggestions(false)
     setHighlightedCompany(-1)
-    companyInputRef.current?.focus()
   }
 
   const handleCompanyBlur = () => {
@@ -264,8 +263,8 @@ function SearchFilters({
       : 'Contract rates and full-time salaries are compared on one yearly scale'
 
   const activeFilters = [
-    query !== DEFAULTS.query && { key: 'query', label: query, clear: { query: DEFAULTS.query } },
-    location !== DEFAULTS.location && { key: 'location', label: location, clear: { location: DEFAULTS.location } },
+    query !== DEFAULTS.query && { key: 'query', label: query || 'No search term', clear: { query: DEFAULTS.query } },
+    location !== DEFAULTS.location && { key: 'location', label: location || 'Any location', clear: { location: DEFAULTS.location } },
     jobType !== DEFAULTS.jobType && { key: 'job_type', label: jobType, clear: { job_type: DEFAULTS.jobType } },
     employmentType && { key: 'employment_type', label: employmentType.toUpperCase(), clear: { employment_type: undefined } },
     minPay && { key: 'min_yearly', label: `min $${minPay}${unitLabel}`, clear: { min_yearly: undefined } },
@@ -454,6 +453,7 @@ function SearchFilters({
             value={savedName}
             onChange={(e) => setSavedName(e.target.value)}
             placeholder="Name this search"
+            aria-label="Search name"
             disabled={loading}
           />
           <button type="button" className="reset" onClick={handleSaveSearch} disabled={loading}>
@@ -477,6 +477,9 @@ function SearchFilters({
               </button>
             </span>
           ))}
+          <button type="button" className="clear-filters-button" onClick={handleReset} disabled={loading}>
+            Clear all
+          </button>
         </div>
       )}
       {recentSearches.length > 0 && (

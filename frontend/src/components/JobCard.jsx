@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react'
 import { eligibilityLabel, formatAnnualPay, formatDate, formatPay, stripHtml } from '../utils/format'
 
+function companyInitials(company) {
+  return (company || 'Contract Scout')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+}
+
 function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite, onToggleHidden }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -13,27 +23,26 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
   const applyUrl = job.job_url_direct || job.job_url
   const descriptionText = useMemo(() => stripHtml(job.description), [job.description])
   const hasLongDescription = descriptionText.length > 240
+  const descriptionId = `job-description-${job.id}`
 
   return (
     <article
       className={`job-card${isViewed ? ' job-card--viewed' : ''}`}
       aria-label={`${job.title} at ${job.company}`}
-      onClick={() => onSelect?.(job.id)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onSelect?.(job.id)
-        }
-      }}
-      role="button"
-      tabIndex={0}
     >
       <div className="job-header">
         <div className="job-header__main">
-          <h3>{job.title}</h3>
-          <div className="job-subtitle">
-            <span className="company">{job.company}</span>
-            {job.location && <span className="location">{job.location}</span>}
+          <span className="company-mark" aria-hidden="true">{companyInitials(job.company)}</span>
+          <div className="job-header__copy">
+            <h3>
+              <button type="button" className="job-title-button" onClick={() => onSelect?.(job.id)}>
+                {job.title}
+              </button>
+            </h3>
+            <div className="job-subtitle">
+              <span className="company">{job.company}</span>
+              {job.location && <span className="location">{job.location}</span>}
+            </div>
           </div>
         </div>
         <div className="job-header__pay">
@@ -91,6 +100,7 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
             href={applyUrl}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="View job posting (opens in a new tab)"
             onClick={(e) => e.stopPropagation()}
           >
             View job →
@@ -101,17 +111,21 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
       {job.description && (
         <div className="description-block">
           <div
+            id={descriptionId}
             className="description"
             style={{
               maxHeight: expanded || !hasLongDescription ? 'none' : '120px',
               overflow: expanded ? 'auto' : 'hidden',
             }}
-            dangerouslySetInnerHTML={{ __html: job.description }}
-          />
+          >
+            {descriptionText}
+          </div>
           {hasLongDescription && (
             <button
               type="button"
               className="expand-button"
+              aria-expanded={expanded}
+              aria-controls={descriptionId}
               onClick={(e) => {
                 e.stopPropagation()
                 setExpanded(!expanded)

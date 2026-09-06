@@ -1,15 +1,6 @@
-import { useEffect } from 'react'
-
-const TOAST_DURATION = 3000
-
 function Toast({ message, type, onClose }) {
-  useEffect(() => {
-    const timer = setTimeout(onClose, TOAST_DURATION)
-    return () => clearTimeout(timer)
-  }, [onClose])
-
   return (
-    <div className={`toast toast--${type}`} role="status">
+    <div className={`toast toast--${type}`}>
       <span className="toast__message">{message}</span>
       <button type="button" className="toast__close" onClick={onClose} aria-label="Dismiss">
         ×

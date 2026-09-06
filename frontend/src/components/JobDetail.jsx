@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { eligibilityLabel, formatAnnualPay, formatDate, formatPay } from '../utils/format'
+import { eligibilityLabel, formatAnnualPay, formatDate, formatPay, stripHtml } from '../utils/format'
 
 function JobDetail({ job, loading, error, onClose }) {
   const closeButtonRef = useRef(null)
@@ -21,10 +21,7 @@ function JobDetail({ job, loading, error, onClose }) {
   }, [open])
 
   useEffect(() => {
-    if (job) closeButtonRef.current?.focus()
-  }, [job])
-
-  useEffect(() => {
+    if (!open) return
     const handleKey = (e) => {
       if (e.key === 'Escape') {
         onClose()
@@ -48,7 +45,7 @@ function JobDetail({ job, loading, error, onClose }) {
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  }, [onClose, open])
 
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) onClose()
@@ -113,13 +110,13 @@ function JobDetail({ job, loading, error, onClose }) {
               </div>
               {applyUrl && (
                 <div className="modal-actions">
-                  <a className="apply-link" href={applyUrl} target="_blank" rel="noopener noreferrer">
+                  <a className="apply-link" href={applyUrl} target="_blank" rel="noopener noreferrer" aria-label="Apply now (opens in a new tab)">
                     Apply now
                   </a>
                 </div>
               )}
               {job.description && (
-                <div className="description" dangerouslySetInnerHTML={{ __html: job.description }} />
+                <div className="description">{stripHtml(job.description)}</div>
               )}
             </>
           )}

@@ -131,6 +131,7 @@ function AppContent({ toasts, showToast, onCloseToast }) {
       setLoadingMore(true)
     } else {
       setLoading(true)
+      setLoadingMore(false)
       setOffset(0)
     }
     setError(null)
@@ -177,10 +178,12 @@ function AppContent({ toasts, showToast, onCloseToast }) {
       setError(err.message || 'Something went wrong.')
       if (shouldAnnounce) announce(`Error: ${err.message || 'Something went wrong.'}`)
     } finally {
-      if (append) {
-        setLoadingMore(false)
-      } else {
-        setLoading(false)
+      if (fetchId === fetchIdRef.current) {
+        if (append) {
+          setLoadingMore(false)
+        } else {
+          setLoading(false)
+        }
       }
     }
   }
@@ -213,7 +216,7 @@ function AppContent({ toasts, showToast, onCloseToast }) {
     setSelectedJobId(id)
     prefs.markViewed(id)
   }
-  const handleCloseDetail = () => setSelectedJobId(null)
+  const handleCloseDetail = useCallback(() => setSelectedJobId(null), [])
 
   const handleToggleFavorite = (id) => {
     const removed = prefs.toggleFavorite(id)
@@ -246,8 +249,12 @@ function AppContent({ toasts, showToast, onCloseToast }) {
   }
 
   const handleDeleteSaved = async (id) => {
-    await savedSearches.remove(id)
-    showToast('Saved search deleted')
+    try {
+      await savedSearches.remove(id)
+      showToast('Saved search deleted')
+    } catch {
+      showToast('Could not delete saved search', 'error')
+    }
   }
 
   const handleUpdateSaved = async (id, patch) => {
@@ -290,18 +297,39 @@ function AppContent({ toasts, showToast, onCloseToast }) {
 
   return (
     <div className="container">
-      <header>
+      <header className="app-header">
         <div className="header-content">
-          <h1>Contract Scout</h1>
+          <div className="brand-lockup">
+            <span className="brand-mark" aria-hidden="true">CS</span>
+            <div>
+              <span className="eyebrow">Contract intelligence</span>
+              <h1>Contract Scout</h1>
+            </div>
+          </div>
           <div className="header-actions">
             <AuthBar />
             <ThemeToggle theme={theme} onToggle={handleToggleTheme} />
           </div>
         </div>
-        <p>Remote US contract jobs for software engineers and tech professionals.</p>
+        <div className="hero-content">
+          <p>Find high-quality remote US contract roles without searching every job board yourself.</p>
+          <div className="hero-stats" aria-label="Contract Scout status">
+            <span><strong>{total || jobStats?.count || 0}</strong> opportunities</span>
+            <span><strong>{sources.filter((source) => source.configured !== false).length}</strong> sources ready</span>
+            <span><strong>{jobStats?.last_scraped ? formatRelativeTime(jobStats.last_scraped) : 'Not yet'}</strong> refreshed</span>
+          </div>
+        </div>
       </header>
 
-      <section className="card">
+      <section className="card search-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Search workspace</span>
+            <h2>Find your next contract</h2>
+            <p>Set your target role, rate, and engagement type. We will handle the sources.</p>
+          </div>
+          <span className="keyboard-hint"><kbd>Ctrl</kbd><kbd>K</kbd> quick focus</span>
+        </div>
         <SearchFilters
           onSearch={handleSearch}
           onQueryChange={handleQueryChange}
@@ -339,15 +367,24 @@ function AppContent({ toasts, showToast, onCloseToast }) {
             )}
           </div>
           <div className="results-actions">
-            <select
-              value={viewMode}
-              onChange={(e) => setViewMode(e.target.value)}
-              className="view-mode-select"
-              aria-label="View mode"
-            >
-              <option value="all">All jobs</option>
-              <option value="favorites">Saved jobs</option>
-            </select>
+            <div className="view-tabs" role="group" aria-label="Job view">
+              <button
+                type="button"
+                className={`view-tab${viewMode === 'all' ? ' view-tab--active' : ''}`}
+                onClick={() => setViewMode('all')}
+                aria-pressed={viewMode === 'all'}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`view-tab${viewMode === 'favorites' ? ' view-tab--active' : ''}`}
+                onClick={() => setViewMode('favorites')}
+                aria-pressed={viewMode === 'favorites'}
+              >
+                Saved {favoriteSet.size > 0 && <span>{favoriteSet.size}</span>}
+              </button>
+            </div>
             {prefs.hidden.length > 0 && (
               <button onClick={handleClearHidden} className="clear-hidden-button">
                 Show {prefs.hidden.length} hidden
@@ -371,6 +408,14 @@ function AppContent({ toasts, showToast, onCloseToast }) {
             )}
           </div>
         </div>
+        {viewMode === 'all' && total > 0 && (
+          <div className="results-progress" aria-label={`Loaded ${jobs.length} of ${total} jobs`}>
+            <div className="results-progress__track">
+              <span style={{ width: `${Math.min((jobs.length / total) * 100, 100)}%` }} />
+            </div>
+            <span>{jobs.length} loaded</span>
+          </div>
+        )}
         {visibleJobs.length > 0 && <PayInsights jobs={visibleJobs} />}
         <JobList
           jobs={jobs}

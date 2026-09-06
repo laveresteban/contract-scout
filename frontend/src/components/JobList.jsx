@@ -2,7 +2,7 @@ import JobCard from './JobCard'
 
 function SkeletonCard() {
   return (
-    <article className="job-card skeleton-card" aria-busy="true" aria-live="polite">
+    <article className="job-card skeleton-card" aria-busy="true">
       <div className="skeleton skeleton--title" />
       <div className="skeleton skeleton--subtitle" />
       <div className="skeleton-row">
@@ -33,9 +33,9 @@ function JobList({
   onToggleFavorite,
   onToggleHidden,
 }) {
-  if (loading) {
+  if (loading && jobs.length === 0) {
     return (
-      <section className="job-list" aria-label="Loading jobs" aria-busy="true" aria-live="polite">
+      <section className="job-list" aria-label="Loading jobs" aria-busy="true">
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
@@ -81,7 +81,11 @@ function JobList({
   }
 
   return (
-    <section className="job-list" aria-label="Job results" aria-live="polite">
+    <section
+      className={`job-list${loading ? ' job-list--refreshing' : ''}`}
+      aria-label="Job results"
+      aria-busy={loading}
+    >
       {visibleJobs.map((job) => (
         <JobCard
           key={job.id}
@@ -96,7 +100,7 @@ function JobList({
       ))}
       {hasMore && viewMode !== 'favorites' && (
         <div className="load-more">
-          <button onClick={onLoadMore} disabled={loadingMore} className="load-more-button">
+          <button onClick={onLoadMore} disabled={loading || loadingMore} className="load-more-button">
             {loadingMore ? 'Loading more…' : 'Load more jobs'}
           </button>
         </div>

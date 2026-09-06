@@ -27,6 +27,7 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 - **Search-as-you-type with debounce** — `SearchFilters` debounces the query input and calls `onQueryChange`; `App` fetches the first page from `GET /api/v1/jobs` without scraping and uses a `fetchIdRef` to ignore stale responses.
 - **ARIA & focus improvements** — `App` has a screen-reader-only live region that announces loading, results, and errors; `JobDetail` focuses the close button and uses `role="dialog"`; `JobCard`, `JobList`, and `SearchFilters` get additional ARIA attributes.
 - **Negative keywords** — The backend parses `-term` in the query and excludes jobs whose title, company, or description match; positive terms are still used for scraping and relevance sorting.
+- **Cohesive UI polish pass** — The app now has a branded status header, stronger search and result hierarchy, styled auth/saved-search/scrape-health controls, responsive health tables, collapsible saved searches, segmented result views, company initials on job cards, persistent results during live search, normalized annual pay insights, and improved mobile layouts.
 
 ## Current state snapshot
 
@@ -84,12 +85,21 @@ This file is the persistent memory for UI improvements in the Contract Scout pro
 29. **Keyboard shortcuts** — e.g. `Ctrl/Cmd + K` to focus search, `/` to open filters.
 30. **ARIA & focus improvements** — announce loading and results changes to screen readers.
 
+## Newly reviewed opportunities
+
+1. **Application pipeline** — move saved jobs through Interested, Applied, Interviewing, Offer, and Archived stages with notes and follow-up dates.
+2. **Merged-source transparency** — show every source and apply link attached to a deduplicated role so users can choose the strongest listing.
+3. **Match explanations** — score jobs against a saved search and explain which title, rate, location, and engagement criteria matched or missed.
+4. **Compare saved jobs** — place selected roles side by side for rate, yearly equivalent, employment type, location eligibility, and posting age.
+5. **Notification center** — surface newly matched jobs and scrape failures in-app instead of relying only on email alerts.
+6. **Background desktop mode** — provide a Windows tray or detached-service launcher so scheduled scraping continues with the browser closed.
+7. **Filter result previews** — show result counts before committing expensive scrape operations and distinguish cached filtering from a fresh scrape.
+8. **Data quality feedback** — let users flag duplicate, expired, misclassified, or incorrect-pay listings to improve source quality.
+
 ## Suggested implementation order
 
-1. URL-synced filters + recent searches (high impact, no backend changes).
-2. Pagination or infinite scroll (uses existing API).
-3. Job detail modal (uses existing `GET /api/v1/jobs/{job_id}`).
-4. Favorites and hide jobs in `localStorage`.
-5. Export results and copy search link.
-6. Dark mode and responsive improvements.
-7. Saved searches, auth, and alerts once backend support is added.
+1. Merged-source transparency and data-quality feedback.
+2. Application pipeline with notes and follow-up dates.
+3. Background desktop mode and notification center.
+4. Match explanations and filter result previews.
+5. Compare saved jobs.

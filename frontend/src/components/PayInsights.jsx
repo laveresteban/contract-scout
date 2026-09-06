@@ -3,22 +3,23 @@ import { formatCurrency } from '../utils/format'
 const BUCKET_COUNT = 5
 
 function PayInsights({ jobs }) {
-  const jobsWithPay = jobs.filter((job) => job.min_amount != null || job.max_amount != null)
+  const jobsWithPay = jobs.filter(
+    (job) => job.normalized_min_yearly != null || job.normalized_max_yearly != null
+  )
 
   if (jobsWithPay.length === 0) return null
 
-  const values = jobsWithPay.map((job) => job.max_amount ?? job.min_amount)
-  const currency = jobsWithPay.find((job) => job.currency)?.currency || 'USD'
-  const intervals = {}
-  jobsWithPay.forEach((job) => {
-    if (job.interval) {
-      intervals[job.interval] = (intervals[job.interval] || 0) + 1
-    }
+  const minimums = jobsWithPay.map((job) => job.normalized_min_yearly ?? job.normalized_max_yearly)
+  const maximums = jobsWithPay.map((job) => job.normalized_max_yearly ?? job.normalized_min_yearly)
+  const values = jobsWithPay.map((job) => {
+    const minimum = job.normalized_min_yearly ?? job.normalized_max_yearly
+    const maximum = job.normalized_max_yearly ?? job.normalized_min_yearly
+    return (minimum + maximum) / 2
   })
-  const primaryInterval = Object.entries(intervals).sort((a, b) => b[1] - a[1])[0]?.[0]
-
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+  const currency = 'USD'
+  const coverage = Math.round((jobsWithPay.length / jobs.length) * 100)
+  const min = Math.min(...minimums)
+  const max = Math.max(...maximums)
   const avg = values.reduce((a, b) => a + b, 0) / values.length
 
   const range = max - min || 1
@@ -40,8 +41,11 @@ function PayInsights({ jobs }) {
   return (
     <div className="pay-insights">
       <div className="pay-insights__header">
-        <h3>Pay insights</h3>
-        <span className="pay-insights__count">{jobsWithPay.length} jobs with pay</span>
+        <div>
+          <span className="eyebrow">Market snapshot</span>
+          <h3>Annual pay insights</h3>
+        </div>
+        <span className="pay-insights__count">{jobsWithPay.length} jobs with disclosed pay</span>
       </div>
       <div className="pay-insights__stats">
         <div className="pay-stat">
@@ -54,12 +58,10 @@ function PayInsights({ jobs }) {
           <span className="pay-stat__label">Average</span>
           <span className="pay-stat__value">{formatCurrency(avg, currency)}</span>
         </div>
-        {primaryInterval && (
-          <div className="pay-stat">
-            <span className="pay-stat__label">Interval</span>
-            <span className="pay-stat__value">{primaryInterval}</span>
-          </div>
-        )}
+        <div className="pay-stat">
+          <span className="pay-stat__label">Pay coverage</span>
+          <span className="pay-stat__value">{coverage}%</span>
+        </div>
       </div>
       <div className="pay-histogram" role="img" aria-label="Pay range histogram">
         {buckets.map((count, index) => (
