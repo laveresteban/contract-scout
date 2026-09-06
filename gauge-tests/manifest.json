@@ -1,0 +1,7 @@
+{
+  "Language": "python",
+  "EnvironmentDir": "gauge-env",
+  "Plugins": [
+    "html-report"
+  ]
+}

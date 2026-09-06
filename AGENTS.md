@@ -26,6 +26,10 @@ The following are standard, non-destructive commands for this repo. You may run 
 - `cd frontend && npm run preview`
 - `cd frontend && npm run lint`
 
+### Gauge verification
+- `cd gauge-tests && npm install`
+- `cd gauge-tests && npm test` (requires the backend on port 8001; creates a local Python virtual environment on first run)
+
 ### Docker
 - `docker compose up --build`
 - `docker compose up -d`

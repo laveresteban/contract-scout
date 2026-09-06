@@ -108,10 +108,42 @@ def _backfill_quality_fields():
         db.close()
 
 
+def _backfill_dedup_keys():
+    from app.scraper import _dedup_key, _merge_job
+
+    db = SessionLocal()
+    try:
+        groups = {}
+        for row in db.query(JobORM).all():
+            row.dedup_key = _dedup_key(Job.model_validate(row))
+            if row.is_active is not False:
+                groups.setdefault(row.dedup_key, []).append(row)
+        for matches in groups.values():
+            if len(matches) < 2:
+                continue
+            canonical = max(
+                matches,
+                key=lambda row: (
+                    bool(row.description),
+                    len(row.description or ""),
+                    int(row.min_amount is not None) + int(row.max_amount is not None),
+                ),
+            )
+            for duplicate in matches:
+                if duplicate is canonical:
+                    continue
+                _merge_job(canonical, Job.model_validate(duplicate))
+                duplicate.is_active = False
+        db.commit()
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
     _backfill_quality_fields()
+    _backfill_dedup_keys()
 
 
 def get_db():

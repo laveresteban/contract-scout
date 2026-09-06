@@ -45,6 +45,10 @@ data/
 node_modules/
 frontend/dist/
 frontend/.vite/
+gauge-tests/.gauge/
+gauge-tests/logs/
+gauge-tests/reports/
+gauge-tests/tests/job_results.js
 *.local
 
 # Editor

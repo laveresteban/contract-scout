@@ -2003,10 +2003,14 @@ def save_jobs(jobs: list[Job], db: Session) -> int:
     batch: dict[str, JobORM] = {}
     for job in jobs:
         key = _dedup_key(job)
-        existing = batch.get(key) or db.query(JobORM).filter(JobORM.id == job.id).first()
+        existing = batch.get(key) or db.query(JobORM).filter(
+            JobORM.dedup_key == key,
+            JobORM.is_active.is_(True),
+        ).first()
         if not existing:
-            existing = db.query(JobORM).filter(JobORM.dedup_key == key).first()
+            existing = db.query(JobORM).filter(JobORM.id == job.id).first()
         if existing:
+            existing.dedup_key = key
             _merge_job(existing, job)
             continue
         payload = job.model_dump(exclude_none=True, exclude={"date_posted", "source_urls", *_COMPUTED_FIELDS})

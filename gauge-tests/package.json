@@ -1,0 +1,11 @@
+{
+  "name": "contract-scout-gauge-tests",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "node run-gauge.js"
+  },
+  "devDependencies": {
+    "@getgauge/cli": "1.6.36"
+  }
+}

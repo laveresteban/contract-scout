@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.auth import create_access_token
+from app.database import _backfill_dedup_keys
 from app.models import JobORM, UserORM
 from app.normalize import classify_eligibility, normalize_amount
 from app.scraper import _dedup_key, mark_stale_jobs, save_jobs
@@ -139,6 +140,28 @@ def test_save_jobs_skips_cross_source_duplicates(db):
     ]
     saved = save_jobs(jobs, db)
     assert saved == 1
+
+
+def test_backfill_dedup_keys_hides_legacy_duplicates(client, db):
+    db.add_all(
+        [
+            JobORM(id="legacy-1", site="indeed", title="Python Dev", company="Acme Inc", description="Short", is_remote=True, is_us=True),
+            JobORM(id="legacy-2", site="linkedin", title="Python Dev", company="Acme", description="Longer description", is_remote=True, is_us=True),
+        ]
+    )
+    db.commit()
+
+    _backfill_dedup_keys()
+    db.expire_all()
+
+    rows = db.query(JobORM).all()
+    assert len({row.dedup_key for row in rows}) == 1
+    assert sum(row.is_active is not False for row in rows) == 1
+    assert len(client.get("/api/v1/jobs").json()) == 1
+
+    save_jobs([Job(id="legacy-1", site="indeed", title="Python Dev", company="Acme Inc", is_remote=True, is_us=True)], db)
+    db.expire_all()
+    assert db.query(JobORM).filter(JobORM.is_active.is_(True)).count() == 1
 
 
 def test_save_jobs_merges_richer_duplicate(db):
