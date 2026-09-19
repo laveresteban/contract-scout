@@ -72,6 +72,22 @@ export async function getJobStats() {
   return request('/jobs/stats')
 }
 
+// Re-fetch the original posting to confirm it's still live. `force` bypasses
+// the backend's freshness cache for a manual re-check.
+export async function verifyJob(id, { force = false } = {}) {
+  return request(`/jobs/${encodeURIComponent(id)}/verify${force ? '?force=true' : ''}`, {
+    method: 'POST',
+  })
+}
+
+export async function verifyJobs(ids) {
+  return request('/jobs/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+}
+
 export async function getScrapeHealth() {
   return request('/scrape/health')
 }

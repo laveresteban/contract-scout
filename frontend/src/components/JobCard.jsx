@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
-import { eligibilityLabel, formatAnnualPay, formatDate, formatPay, stripHtml } from '../utils/format'
+import { eligibilityLabel, formatDate, getPayDisplay, stripHtml } from '../utils/format'
+import { evaluateJob, primaryWarning } from '../utils/quality'
+import JobDescription from './JobDescription'
 
 function companyInitials(company) {
   return (company || 'Contract Scout')
@@ -14,20 +16,23 @@ function companyInitials(company) {
 function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite, onToggleHidden }) {
   const [expanded, setExpanded] = useState(false)
 
-  const rawPay = formatPay(job)
-  const annualPay = formatAnnualPay(job)
-  // Show the raw rate only when it adds something beyond the yearly-equiv headline.
-  const rawIsDistinct = rawPay && job.interval && job.interval !== 'yearly'
+  const pay = getPayDisplay(job)
   const eligibility = eligibilityLabel(job)
   const posted = formatDate(job.date_posted)
   const applyUrl = job.job_url_direct || job.job_url
+
+  const assessment = useMemo(() => evaluateJob(job), [job])
+  const warning = primaryWarning(assessment)
+  const remoteUnverified = assessment.remoteConfidence === 'unverified'
+
   const descriptionText = useMemo(() => stripHtml(job.description), [job.description])
   const hasLongDescription = descriptionText.length > 240
   const descriptionId = `job-description-${job.id}`
+  const isExpired = assessment.flags.some((flag) => flag.id === 'expired')
 
   return (
     <article
-      className={`job-card${isViewed ? ' job-card--viewed' : ''}`}
+      className={`job-card${isViewed ? ' job-card--viewed' : ''}${isExpired ? ' job-card--flagged' : ''}`}
       aria-label={`${job.title} at ${job.company}`}
     >
       <div className="job-header">
@@ -40,16 +45,16 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
               </button>
             </h3>
             <div className="job-subtitle">
-              <span className="company">{job.company}</span>
+              <span className="company">{job.company || 'Undisclosed company'}</span>
               {job.location && <span className="location">{job.location}</span>}
             </div>
           </div>
         </div>
         <div className="job-header__pay">
-          {annualPay ? (
+          {pay.annual ? (
             <>
-              <span className="comp-amount" title="Approximate yearly USD equivalent">{annualPay}</span>
-              {rawIsDistinct && <span className="comp-raw">{rawPay}</span>}
+              <span className="comp-amount" title="Approximate yearly USD equivalent">{pay.annual}</span>
+              {pay.rawIsDistinct && <span className="comp-raw">{pay.raw}</span>}
             </>
           ) : (
             <span className="comp-amount comp-amount--muted">Pay undisclosed</span>
@@ -61,7 +66,15 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
         {isNew && <span className="badge badge--new">New</span>}
         {isViewed && <span className="badge badge--viewed">Viewed</span>}
         <span className="badge badge--source">{job.site}</span>
-        {job.is_remote && <span className="badge badge--remote">Remote</span>}
+        {job.is_remote && (
+          remoteUnverified ? (
+            <span className="badge badge--remote-warn" title="Tagged remote, but the description suggests otherwise">
+              Remote?
+            </span>
+          ) : (
+            <span className="badge badge--remote">Remote</span>
+          )
+        )}
         {eligibility && <span className={`badge badge--eligibility badge--elig-${job.eligibility}`}>{eligibility}</span>}
         {job.job_type && <span className="badge badge--type">{job.job_type}</span>}
         {job.employment_type && (
@@ -69,6 +82,16 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
         )}
         {posted && <span className="badge badge--posted">Posted {posted}</span>}
       </div>
+
+      {warning && (
+        <div className={`job-alert job-alert--${warning.level}`} role="note">
+          <span className="job-alert__label">{warning.label}</span>
+          <span className="job-alert__detail">{warning.detail}</span>
+          {assessment.flags.length > 1 && (
+            <span className="job-alert__more">+{assessment.flags.length - 1} more</span>
+          )}
+        </div>
+      )}
 
       <div className="job-actions">
         <button
@@ -118,7 +141,7 @@ function JobCard({ job, onSelect, isFavorite, isNew, isViewed, onToggleFavorite,
               overflow: expanded ? 'auto' : 'hidden',
             }}
           >
-            {descriptionText}
+            <JobDescription html={job.description} />
           </div>
           {hasLongDescription && (
             <button

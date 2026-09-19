@@ -1,0 +1,6 @@
+# Contract Scout scrape schedule (busybox crond).
+# Times are the container's local time — TZ is set to America/New_York.
+# Every 30 min from 7:00am through 10:00pm, Monday–Saturday.
+# min hour dom mon dow  command
+0,30 7-21 * * 1-6 /app/scrape.sh > /proc/1/fd/1 2>/proc/1/fd/2
+0 22 * * 1-6 /app/scrape.sh > /proc/1/fd/1 2>/proc/1/fd/2

@@ -62,6 +62,19 @@ const INTERVAL_SUFFIX = {
   yearly: '/yr',
 }
 
+const INTERVAL_NOUN = {
+  hourly: 'Hourly rate',
+  daily: 'Daily rate',
+  weekly: 'Weekly rate',
+  monthly: 'Monthly rate',
+  yearly: 'Annual salary',
+}
+
+// Human label for a raw pay interval, e.g. "Hourly rate".
+export function intervalLabel(interval) {
+  return INTERVAL_NOUN[interval] || 'Pay rate'
+}
+
 export function formatPay(job) {
   const minimum = job.min_amount != null ? formatCurrency(job.min_amount, job.currency) : null
   const maximum = job.max_amount != null ? formatCurrency(job.max_amount, job.currency) : null
@@ -84,6 +97,22 @@ export function formatAnnualPay(job) {
   if (min != null && max == null) return `From ${formatCompactUSD(min)}/yr`
   if (max != null && min == null) return `Up to ${formatCompactUSD(max)}/yr`
   return `${formatCompactUSD(max ?? min)}/yr`
+}
+
+// One place that resolves every pay figure a card or the modal needs, so the
+// two views can't drift apart. `annual` headlines; `raw` is the source-interval
+// rate, shown only when it says something the yearly figure doesn't.
+export function getPayDisplay(job) {
+  const annual = formatAnnualPay(job)
+  const raw = formatPay(job)
+  const rawIsDistinct = Boolean(raw && job.interval && job.interval !== 'yearly')
+  return {
+    hasPay: Boolean(annual || raw),
+    annual,
+    raw,
+    rawIsDistinct,
+    intervalLabel: intervalLabel(job.interval),
+  }
 }
 
 const ELIGIBILITY_LABELS = {

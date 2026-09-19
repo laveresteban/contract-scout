@@ -1,4 +1,5 @@
 import JobCard from './JobCard'
+import { evaluateJob } from '../utils/quality'
 
 function SkeletonCard() {
   return (
@@ -30,6 +31,7 @@ function JobList({
   viewed,
   lastVisit,
   viewMode,
+  hideRisky,
   onToggleFavorite,
   onToggleHidden,
 }) {
@@ -66,6 +68,7 @@ function JobList({
   }
   const visibleJobs = jobs.filter((job) => {
     if (hiddenSet.has(job.id)) return false
+    if (hideRisky && evaluateJob(job).tier === 'risky') return false
     if (viewMode === 'favorites') return favoriteSet.has(job.id)
     return true
   })
@@ -74,6 +77,8 @@ function JobList({
     let message = 'No jobs found yet. Run a search above.'
     if (viewMode === 'favorites') {
       message = 'No saved jobs yet. Save jobs from the results to see them here.'
+    } else if (hideRisky && jobs.length > 0) {
+      message = 'Every result here was flagged. Turn off “Hide flagged” to review them.'
     } else if (jobs.length > 0) {
       message = 'No jobs match the current filters. Try adjusting your search.'
     }

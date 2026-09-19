@@ -11,7 +11,7 @@ import ScrapeHealthPanel from './components/ScrapeHealthPanel'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { usePrefs } from './hooks/usePrefs'
 import { useSavedSearches } from './hooks/useSavedSearches'
-import { getJob, getJobStats, listJobs, listSources, scrapeJobs } from './api'
+import { getJob, getJobStats, listJobs, listSources, scrapeJobs, verifyJob, verifyJobs } from './api'
 import {
   addRecentSearch,
   deserializeFilters,
@@ -20,9 +20,12 @@ import {
 } from './utils/filters'
 import { downloadFile, jobsToCsv } from './utils/export'
 import { formatRelativeTime } from './utils/format'
+import { dedupeJobs, mergeUniqueJobs } from './utils/jobs'
+import { evaluateJob } from './utils/quality'
 import { loadLastVisit, loadTheme, saveLastVisit, saveTheme } from './utils/prefs'
 
 const PAGE_SIZE = 25
+const SCRAPE_RESULTS_WANTED = 100
 
 function AppContent({ toasts, showToast, onCloseToast }) {
   const { user } = useAuth()
@@ -43,10 +46,12 @@ function AppContent({ toasts, showToast, onCloseToast }) {
   const [hasMore, setHasMore] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState(null)
   const fetchIdRef = useRef(0)
+  const autoVerifyAttempted = useRef(new Set())
   const [selectedJob, setSelectedJob] = useState(null)
   const [selectedJobLoading, setSelectedJobLoading] = useState(false)
   const [selectedJobError, setSelectedJobError] = useState(null)
   const [viewMode, setViewMode] = useState('all')
+  const [hideRisky, setHideRisky] = useState(false)
   const [theme, setTheme] = useState(() => loadTheme())
   const [lastVisit] = useState(() => loadLastVisit())
   const [announcement, setAnnouncement] = useState('')
@@ -94,13 +99,23 @@ function AppContent({ toasts, showToast, onCloseToast }) {
   const hiddenSet = useMemo(() => new Set(prefs.hidden), [prefs.hidden])
   const favoriteSet = useMemo(() => new Set(prefs.favorites), [prefs.favorites])
 
+  // Assess each job once; reused for the risky filter and the count badge.
+  const riskyIds = useMemo(() => {
+    const set = new Set()
+    jobs.forEach((job) => {
+      if (evaluateJob(job).tier === 'risky') set.add(job.id)
+    })
+    return set
+  }, [jobs])
+
   const visibleJobs = useMemo(() => {
     return jobs.filter((job) => {
       if (hiddenSet.has(job.id)) return false
+      if (hideRisky && riskyIds.has(job.id)) return false
       if (viewMode === 'favorites') return favoriteSet.has(job.id)
       return true
     })
-  }, [jobs, hiddenSet, favoriteSet, viewMode])
+  }, [jobs, hiddenSet, favoriteSet, viewMode, hideRisky, riskyIds])
 
   const companies = useMemo(() => {
     const names = new Set()
@@ -145,10 +160,11 @@ function AppContent({ toasts, showToast, onCloseToast }) {
         const scrapeParams = { ...params }
         if (scrapeParams.source) scrapeParams.sources = [scrapeParams.source]
         delete scrapeParams.source
-        await scrapeJobs({ ...scrapeParams, results_wanted: PAGE_SIZE })
+        await scrapeJobs({ ...scrapeParams, results_wanted: SCRAPE_RESULTS_WANTED })
       }
-      const { jobs: fetched, total: totalCount } = await listJobs({
+      const { jobs: fetchedJobs, total: totalCount } = await listJobs({
         q: params.query,
+        location: params.location,
         is_remote: true,
         is_us: true,
         job_type: params.job_type,
@@ -163,10 +179,13 @@ function AppContent({ toasts, showToast, onCloseToast }) {
         offset: currentOffset,
       })
       if (fetchId !== fetchIdRef.current) return
-      setJobs((prev) => (append ? [...prev, ...fetched] : fetched))
+      const fetched = dedupeJobs(fetchedJobs)
+      setJobs((prev) => (append ? mergeUniqueJobs(prev, fetched) : fetched))
       setTotal(totalCount)
-      setHasMore(currentOffset + fetched.length < totalCount)
-      setOffset(currentOffset + fetched.length)
+      // Advance by the API page size, not the number of unique cards. This
+      // prevents duplicate-heavy pages from repeatedly being requested.
+      setHasMore(currentOffset + fetchedJobs.length < totalCount)
+      setOffset(currentOffset + fetchedJobs.length)
       if (shouldAnnounce) {
         if (fetched.length === 0 && !append) {
           announce('No jobs found for this search')
@@ -217,6 +236,79 @@ function AppContent({ toasts, showToast, onCloseToast }) {
     prefs.markViewed(id)
   }
   const handleCloseDetail = useCallback(() => setSelectedJobId(null), [])
+
+  // Merge one or more verification results into the job list and the open modal.
+  const applyVerifications = useCallback((resultsById) => {
+    const toPatch = (result) => {
+      const patch = {
+        verify_status: result.status,
+        verify_detail: result.detail,
+        verify_checked_at: result.checked_at,
+        verify_http_status: result.http_status,
+      }
+      // The verify pass also scrapes pay off the live page; fold it in so the
+      // card reflects a rate we didn't have from the original scrape.
+      if (result.normalized_min_yearly != null || result.normalized_max_yearly != null) {
+        patch.min_amount = result.min_amount
+        patch.max_amount = result.max_amount
+        patch.currency = result.currency
+        patch.interval = result.interval
+        patch.normalized_min_yearly = result.normalized_min_yearly
+        patch.normalized_max_yearly = result.normalized_max_yearly
+      }
+      return patch
+    }
+    setJobs((prev) =>
+      prev.map((job) => (resultsById[job.id] ? { ...job, ...toPatch(resultsById[job.id]) } : job))
+    )
+    setSelectedJob((prev) =>
+      prev && resultsById[prev.id] ? { ...prev, ...toPatch(resultsById[prev.id]) } : prev
+    )
+  }, [])
+
+  const applyVerification = (id, result) => applyVerifications({ [id]: result })
+
+  // Auto-verify the loaded page in the background: confirm which postings are
+  // still live before the user commits to one. Best-effort and silent — only
+  // jobs we haven't checked, one batched call, debounced so typing doesn't
+  // trigger a flurry of outbound fetches.
+  useEffect(() => {
+    const pending = jobs
+      .filter((job) => !job.verify_status || job.verify_status === 'unverified')
+      .filter((job) => !autoVerifyAttempted.current.has(job.id))
+      .slice(0, 25)
+      .map((job) => job.id)
+    if (pending.length === 0) return undefined
+
+    const timer = setTimeout(async () => {
+      pending.forEach((id) => autoVerifyAttempted.current.add(id))
+      try {
+        const { results } = await verifyJobs(pending)
+        if (results && Object.keys(results).length) applyVerifications(results)
+      } catch {
+        // Best-effort: on failure, allow a later retry rather than getting stuck.
+        pending.forEach((id) => autoVerifyAttempted.current.delete(id))
+      }
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [jobs, applyVerifications])
+
+  const handleVerifyJob = async (id, { force = false } = {}) => {
+    try {
+      const result = await verifyJob(id, { force })
+      applyVerification(id, result)
+      const messages = {
+        live: 'Posting confirmed live',
+        expired: 'Posting is no longer open',
+        unreachable: 'Could not reach the source',
+      }
+      showToast(messages[result.status] || 'Re-checked posting', result.status === 'expired' ? 'error' : 'success')
+      return result
+    } catch {
+      showToast('Could not verify this posting', 'error')
+      return null
+    }
+  }
 
   const handleToggleFavorite = (id) => {
     const removed = prefs.toggleFavorite(id)
@@ -385,6 +477,17 @@ function AppContent({ toasts, showToast, onCloseToast }) {
                 Saved {favoriteSet.size > 0 && <span>{favoriteSet.size}</span>}
               </button>
             </div>
+            {riskyIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setHideRisky((prev) => !prev)}
+                className={`quality-filter-button${hideRisky ? ' quality-filter-button--active' : ''}`}
+                aria-pressed={hideRisky}
+                title="Hide listings flagged as likely expired, not truly remote, or low quality"
+              >
+                {hideRisky ? `Showing vetted only` : `Hide ${riskyIds.size} flagged`}
+              </button>
+            )}
             {prefs.hidden.length > 0 && (
               <button onClick={handleClearHidden} className="clear-hidden-button">
                 Show {prefs.hidden.length} hidden
@@ -431,6 +534,7 @@ function AppContent({ toasts, showToast, onCloseToast }) {
           viewed={prefs.viewed}
           lastVisit={lastVisit}
           viewMode={viewMode}
+          hideRisky={hideRisky}
           onToggleFavorite={handleToggleFavorite}
           onToggleHidden={handleToggleHidden}
         />
@@ -441,6 +545,7 @@ function AppContent({ toasts, showToast, onCloseToast }) {
         loading={selectedJobLoading}
         error={selectedJobError}
         onClose={handleCloseDetail}
+        onVerify={handleVerifyJob}
       />
 
       <ToastContainer toasts={toasts} onClose={onCloseToast} />

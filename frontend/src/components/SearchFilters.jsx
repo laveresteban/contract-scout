@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { buildRecentLabel, DEFAULT_FILTER_VALUES } from '../utils/filters'
-
-const HOURS_PER_YEAR = 2080
+import { formatCompactUSD } from '../utils/format'
 
 const DEFAULTS = {
   query: 'software engineer',
@@ -29,6 +28,7 @@ const SORT_OPTIONS = [
 // Convert a stored yearly-USD figure back to a value in the chosen unit.
 function fromYearly(yearly, unit) {
   if (yearly == null) return ''
+  const HOURS_PER_YEAR = 2080
   return unit === 'hourly' ? Math.round(yearly / HOURS_PER_YEAR) : Math.round(yearly)
 }
 
@@ -37,6 +37,7 @@ function toYearly(value, unit) {
   if (!value) return undefined
   const n = parseFloat(value)
   if (Number.isNaN(n)) return undefined
+  const HOURS_PER_YEAR = 2080
   return unit === 'hourly' ? n * HOURS_PER_YEAR : n
 }
 
@@ -55,16 +56,6 @@ function paramsToState(params) {
     sortBy: params.sort_by ?? DEFAULTS.sortBy,
     sortOrder: params.sort_order ?? DEFAULTS.sortOrder,
   }
-}
-
-function formatCompact(n) {
-  if (n == null) return ''
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    notation: 'compact',
-    maximumFractionDigits: 0,
-  }).format(n)
 }
 
 function SearchFilters({
@@ -259,7 +250,7 @@ function SearchFilters({
   const minYearly = toYearly(minPay, payUnit)
   const payHint =
     payUnit === 'hourly' && minYearly
-      ? `≈ ${formatCompact(minYearly)}/yr — salaried roles are matched against this yearly figure`
+      ? `≈ ${formatCompactUSD(minYearly)}/yr — salaried roles are matched against this yearly figure`
       : 'Contract rates and full-time salaries are compared on one yearly scale'
 
   const activeFilters = [
