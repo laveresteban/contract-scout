@@ -1,59 +1,60 @@
-import os
-from pathlib import Path
-
-# Use a file-based test database so all sessions share the same data.
-TEST_DB_PATH = Path(__file__).parent / "test.db"
-TEST_DB_URL = f"sqlite:///{TEST_DB_PATH}"
-
-os.environ["DATABASE_URL"] = TEST_DB_URL
-os.environ["CORS_ORIGINS"] = "http://localhost"
-
-# Remove any stale database file before importing the app.
-if TEST_DB_PATH.exists():
-    TEST_DB_PATH.unlink()
-
 import pytest
-from fastapi.testclient import TestClient
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database import get_db, init_db
+from app.db import Base, get_db
 from app.main import app
-from app.models import JobORM, SessionLocal, engine
 
 
-def _override_get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+@pytest_asyncio.fixture
+async def session_factory():
+    # Fresh in-memory DB per test.
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
 
 
-app.dependency_overrides[get_db] = _override_get_db
+@pytest_asyncio.fixture
+async def db(session_factory):
+    async with session_factory() as session:
+        yield session
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_database():
-    init_db()
-    yield
-    engine.dispose()
-    if TEST_DB_PATH.exists():
-        TEST_DB_PATH.unlink(missing_ok=True)
+@pytest_asyncio.fixture
+async def client(session_factory):
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
 
 
-@pytest.fixture()
-def client():
-    with TestClient(app) as test_client:
-        yield test_client
+@pytest.fixture
+def make_job():
+    from datetime import datetime, timedelta, timezone
 
+    from app.models import Job
 
-@pytest.fixture()
-def db():
-    db = SessionLocal()
-    try:
-        db.query(JobORM).delete(synchronize_session=False)
-        db.commit()
-        yield db
-    finally:
-        db.query(JobORM).delete(synchronize_session=False)
-        db.commit()
-        db.close()
+    def _make(**overrides):
+        defaults = dict(
+            id="job-1",
+            title="Engineer",
+            company="Acme",
+            is_remote=True,
+            is_us=True,  # Contract Scout targets remote + US-eligible roles.
+            job_url="https://jobs.example.com/1",
+            date_posted=datetime.now(timezone.utc) - timedelta(days=5),
+            description="A remote engineering role.",
+        )
+        defaults.update(overrides)
+        return Job(**defaults)
+
+    return _make

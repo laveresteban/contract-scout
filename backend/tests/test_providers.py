@@ -1,7 +1,7 @@
 import pytest
 
 from app import config
-from app.providers import PROVIDERS, ProviderRequest, _job, _wanted, adzuna, jooble, upwork
+from app.services.providers import PROVIDERS, ProviderRequest, _job, _wanted, adzuna, jooble, upwork
 
 
 def test_provider_registry_contains_all_new_sources():

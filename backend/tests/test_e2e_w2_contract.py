@@ -1,4 +1,4 @@
-import app.scraper as scraper_module
+import app.services.boards as scraper_module
 
 
 class _Response:
@@ -64,10 +64,10 @@ class _JobicyClient:
         )
 
 
-def test_w2_contract_search_returns_hourly_rate_at_or_above_90(client, monkeypatch):
+async def test_w2_contract_search_returns_hourly_rate_at_or_above_90(client, monkeypatch):
     monkeypatch.setattr(scraper_module.httpx, "AsyncClient", _JobicyClient)
 
-    scrape = client.post(
+    scrape = await client.post(
         "/api/v1/search",
         json={
             "query": "python engineer",
@@ -82,7 +82,7 @@ def test_w2_contract_search_returns_hourly_rate_at_or_above_90(client, monkeypat
     assert scrape.status_code == 200
     assert scrape.json()["scraped"] == 2
 
-    response = client.get(
+    response = await client.get(
         "/api/v1/jobs",
         params={
             "q": "python",

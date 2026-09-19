@@ -5,8 +5,8 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-import app.scraper as scraper_module
-from app.scraper import (
+import app.services.boards as scraper_module
+from app.services.boards import (
     ALL_SOURCES,
     _build_apify_job,
     _build_dice_job,
@@ -111,7 +111,7 @@ class TestHelpers:
         assert _detect_employment_type(text, "Engineer") == "w2"
 
     def test_regular_role_does_not_treat_compliance_c2c_as_engagement(self):
-        from app.models import Job
+        from app.scraped import Job
 
         job = Job(
             id="regular",
@@ -186,7 +186,7 @@ class TestHelpers:
         assert (parsed.year, parsed.month, parsed.day, parsed.hour, parsed.minute) == (2026, 8, 1, 12, 0)
 
     def test_matches_job_request(self):
-        from app.models import Job
+        from app.scraped import Job
 
         job = Job(
             id="x",
@@ -383,7 +383,7 @@ class TestScrapeMajorBoards:
                 ]
             )
 
-        import app.scraper as scraper
+        import app.services.boards as scraper
 
         monkeypatch.setattr(scraper, "scrape_jobs", fake_scrape_jobs)
         jobs = scrape_major_boards("python", job_type="contract", results_wanted=5)
