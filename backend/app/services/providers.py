@@ -13,9 +13,9 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
-from app import config
-from app.extraction import Compensation, contract_role_signal, employment_type_signal, extract_compensation
-from app.models import Job
+from .. import config
+from ..extraction import Compensation, contract_role_signal, employment_type_signal, extract_compensation
+from ..scraped import Job
 
 logger = logging.getLogger(__name__)
 

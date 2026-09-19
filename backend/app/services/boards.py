@@ -10,11 +10,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
-from sqlalchemy.orm import Session
 
-from app.config import APIFY_ACTOR_ID, APIFY_API_TOKEN, DEFAULT_RESULTS_PER_BOARD, JOB_STALE_DAYS, SCRAPER_HOURS_OLD
-from app.extraction import contract_role_signal, employment_type_signal, extract_compensation, normalize_interval, parse_compensation_text
-from app.models import Job, JobORM
+from ..config import APIFY_ACTOR_ID, APIFY_API_TOKEN, DEFAULT_RESULTS_PER_BOARD, JOB_STALE_DAYS, SCRAPER_HOURS_OLD
+from ..extraction import contract_role_signal, employment_type_signal, extract_compensation, normalize_interval, parse_compensation_text
+from ..scraped import Job
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +63,7 @@ except ImportError:
 
 import httpx
 
-from app.browser_scraper import fetch_rendered
+from .browser_scraper import fetch_rendered
 
 
 US_PATTERNS = [
@@ -1919,123 +1918,3 @@ async def scrape_remote_boards(
     )
     logger.info("Remote board scrape finished, found %d jobs", len(jobs))
     return jobs
-
-
-_DEDUP_STRIP = re.compile(r"[^a-z0-9 ]+")
-_DEDUP_WS = re.compile(r"\s+")
-
-
-def _normalize_for_dedup(value: str | None) -> str:
-    if not value:
-        return ""
-    text = value.lower()
-    # Drop common company suffixes and seniority/location noise so the same
-    # role posted on multiple boards collapses to one key.
-    text = _DEDUP_STRIP.sub(" ", text)
-    text = re.sub(r"\b(inc|llc|ltd|corp|co|group|technologies|technology|solutions|remote)\b", " ", text)
-    return _DEDUP_WS.sub(" ", text).strip()
-
-
-def _dedup_key(job: Job) -> str:
-    """Build a cross-source semantic key from normalized company + title."""
-    base = f"{_normalize_for_dedup(job.company)}|{_normalize_for_dedup(job.title)}"
-    return hashlib.md5(base.encode()).hexdigest()[:20]
-
-
-# Fields that are derived at read time (computed) and must not be passed to the ORM.
-_COMPUTED_FIELDS = {
-    "normalized_min_yearly",
-    "normalized_max_yearly",
-    "normalized_min_hourly",
-    "normalized_max_hourly",
-    "normalized_currency",
-    "eligibility",
-}
-
-
-def _source_urls(existing: str | None, job: Job) -> str:
-    try:
-        values = json.loads(existing or "[]")
-    except (json.JSONDecodeError, TypeError):
-        values = []
-    entry = {"site": job.site, "url": job.job_url or job.job_url_direct}
-    if entry not in values:
-        values.append(entry)
-    return json.dumps(values)
-
-
-def _merge_job(existing: JobORM, job: Job) -> None:
-    existing.last_seen = datetime.utcnow()
-    existing.date_scraped = job.date_scraped or datetime.utcnow()
-    existing.is_active = True
-    existing.quality_version = 2
-    existing.source_urls = _source_urls(existing.source_urls, job)
-    if len(job.description or "") > len(existing.description or ""):
-        existing.description = job.description
-    for name in ("job_url", "job_url_direct", "location", "date_posted"):
-        if getattr(existing, name) is None and getattr(job, name) is not None:
-            setattr(existing, name, getattr(job, name))
-    rank = {None: 0, "low": 1, "medium": 2, "high": 3}
-    existing_pay_count = int(existing.min_amount is not None) + int(existing.max_amount is not None)
-    incoming_pay_count = int(job.min_amount is not None) + int(job.max_amount is not None)
-    if incoming_pay_count and (not existing_pay_count or rank.get(job.pay_confidence, 0) >= rank.get(existing.pay_confidence, 0) or incoming_pay_count > existing_pay_count):
-        for name in ("min_amount", "max_amount", "currency", "interval", "pay_source", "pay_confidence", "pay_raw_text"):
-            value = getattr(job, name)
-            if value is not None:
-                setattr(existing, name, value)
-        existing.normalized_min_yearly = job.normalized_min_yearly
-        existing.normalized_max_yearly = job.normalized_max_yearly
-        existing.normalized_min_hourly = job.normalized_min_hourly
-        existing.normalized_max_hourly = job.normalized_max_hourly
-    if rank.get(job.classification_confidence, 0) >= rank.get(existing.classification_confidence, 0):
-        for name in ("job_type", "employment_type", "classification_source", "classification_confidence"):
-            value = getattr(job, name)
-            if value is not None:
-                setattr(existing, name, value)
-    existing.is_remote = existing.is_remote or job.is_remote
-    existing.is_us = existing.is_us or job.is_us
-    existing.raw_data = json.dumps(job.model_dump(mode="json"))
-
-
-def save_jobs(jobs: list[Job], db: Session) -> int:
-    """Persist jobs to SQLite, merging exact-id and cross-source duplicates."""
-    count = 0
-    batch: dict[str, JobORM] = {}
-    for job in jobs:
-        key = _dedup_key(job)
-        existing = batch.get(key) or db.query(JobORM).filter(
-            JobORM.dedup_key == key,
-            JobORM.is_active.is_(True),
-        ).first()
-        if not existing:
-            existing = db.query(JobORM).filter(JobORM.id == job.id).first()
-        if existing:
-            existing.dedup_key = key
-            _merge_job(existing, job)
-            continue
-        payload = job.model_dump(exclude_none=True, exclude={"date_posted", "source_urls", *_COMPUTED_FIELDS})
-        orm = JobORM(**payload)
-        orm.date_posted = job.date_posted
-        orm.normalized_min_yearly = job.normalized_min_yearly
-        orm.normalized_max_yearly = job.normalized_max_yearly
-        orm.normalized_min_hourly = job.normalized_min_hourly
-        orm.normalized_max_hourly = job.normalized_max_hourly
-        orm.dedup_key = key
-        orm.source_urls = _source_urls(None, job)
-        orm.last_seen = job.date_scraped or datetime.utcnow()
-        orm.is_active = True
-        orm.raw_data = json.dumps(job.model_dump(mode="json"))
-        db.add(orm)
-        batch[key] = orm
-        count += 1
-    db.commit()
-    return count
-
-
-def mark_stale_jobs(db: Session) -> int:
-    cutoff = datetime.utcnow() - timedelta(days=JOB_STALE_DAYS)
-    count = db.query(JobORM).filter(JobORM.is_active.is_(True), JobORM.last_seen < cutoff).update(
-        {JobORM.is_active: False}, synchronize_session=False
-    )
-    db.commit()
-    return count

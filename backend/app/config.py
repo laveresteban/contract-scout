@@ -1,10 +1,75 @@
+"""Application configuration.
+
+Two layers live here, intentionally:
+
+* ``Settings`` (pydantic-settings, ``CS_`` prefix) — the async core's tunables:
+  database URL, verification, the saved-search scan, and now the scraping /
+  auth / scheduler knobs the full backend needs. New code reads these via
+  ``get_settings()``.
+* Module-level constants (``os.getenv``) — the historical settings the ported
+  scraper, providers, auth and alerts modules import by name. Kept so those
+  large modules port with import-path changes only, not a settings rewrite.
+  Where the two overlap they read the same environment variable.
+"""
+
+import json
 import os
+from functools import lru_cache
 from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
+
+# ---------------------------------------------------------------------------
+# Async core settings (CS_ prefix)
+# ---------------------------------------------------------------------------
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="CS_", env_file=".env", extra="ignore")
+
+    # Async SQLAlchemy URL. Defaults to a local SQLite file so the service runs
+    # with zero setup; point this at Postgres (postgresql+asyncpg://…) in prod.
+    database_url: str = f"sqlite+aiosqlite:///{DATA_DIR / 'jobs.db'}"
+
+    # Verification tuning.
+    verify_cache_hours: float = 12.0        # don't re-fetch a job more often than this
+    verify_timeout_seconds: float = 8.0
+    verify_batch_max: int = 25              # ids accepted per batch call
+    verify_batch_concurrency: int = 5       # simultaneous outbound fetches
+    verify_user_agent: str = "ContractScoutBot/1.0 (+https://contractscout.example/bot)"
+
+    # Rate limit (per identity): `rate_limit_times` requests per window.
+    rate_limit_times: int = 30
+    rate_limit_window_seconds: float = 60.0
+
+    # --- Saved-search background scan --------------------------------------
+    scan_enabled: bool = True                # start the background loop at all
+    scan_interval_minutes: int = 60          # how often a due search is re-run
+    scan_weekdays_only: bool = True          # skip Sat/Sun ("during the week")
+    scan_timezone: str = "UTC"               # tz used to decide the weekday
+    scan_max_results: int = 200              # cap results ingested per scan
+    scan_concurrency: int = 3                # searches scraped in parallel
+    saved_search_max: int = 50               # saved searches kept per identity
+
+    # Create tables on startup (dev convenience). Use Alembic in production.
+    auto_create_tables: bool = True
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+# ---------------------------------------------------------------------------
+# Legacy module-level constants (imported by the ported scraper / providers /
+# auth / alerts / scheduler). Read straight from the environment.
+# ---------------------------------------------------------------------------
+
+# Sync SQLAlchemy URL is no longer used (the whole DB layer is async now), but a
+# couple of ported helpers still reference DATABASE_URL indirectly via settings.
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'jobs.db'}")
 
 # Default scrape settings
@@ -55,7 +120,6 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
 
 # --- Authentication (OAuth) -------------------------------------------------
-# Secret used to sign our own JWT session tokens and the OAuth state session.
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-secret-change-me")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", str(60 * 24 * 30)))  # 30 days
@@ -66,10 +130,9 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
 # --- Scheduled scraping -----------------------------------------------------
-# Minutes between automatic scrape runs. 0 disables the scheduler.
+# Minutes between automatic scrape runs. 0 disables the scrape scheduler (the
+# saved-search scan loop is controlled separately via CS_SCAN_* settings).
 SCRAPE_INTERVAL_MINUTES = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "0"))
-# Comma-separated default queries scraped on each scheduled run when there are
-# no alert-enabled saved searches to drive scraping.
 SCHEDULED_QUERIES = [
     q.strip() for q in os.getenv("SCHEDULED_QUERIES", "software engineer").split(",") if q.strip()
 ]
@@ -102,8 +165,6 @@ def _load_fx_rates() -> dict:
     rates = dict(_DEFAULT_FX_RATES)
     if raw:
         try:
-            import json
-
             rates.update({k.upper(): float(v) for k, v in json.loads(raw).items()})
         except (ValueError, TypeError):
             pass

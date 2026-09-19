@@ -5,50 +5,56 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import router
-from app.auth import router as auth_router
-from app.config import CORS_ORIGINS, JWT_SECRET
-from app.database import init_db
-from app.prefs import router as prefs_router
-from app.scheduler import start_scheduler, stop_scheduler
+from . import config
+from .config import get_settings
+from .db import create_all
+from .routers import auth, jobs, prefs
+from .services import scan_adapter
+from .services import scheduler
+from .services import scraper as scraper_module
 
 logging.basicConfig(level=logging.INFO)
+settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    start_scheduler()
+    if settings.auto_create_tables:
+        await create_all()
+    # Wire the real board scraper into the saved-search scan, then start the
+    # background loops (scan + scheduled scrape; each a no-op if disabled).
+    scraper_module.set_scraper(scan_adapter.scan_scraper)
+    scheduler.start()
     try:
         yield
     finally:
-        stop_scheduler()
+        await scheduler.stop()
 
 
 app = FastAPI(
     title="Contract Scout",
     description="Remote US contract job aggregator for software engineers and tech professionals.",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
 # Session middleware backs the OAuth authorization-code state handshake.
-app.add_middleware(SessionMiddleware, secret_key=JWT_SECRET, same_site="lax")
+app.add_middleware(SessionMiddleware, secret_key=config.JWT_SECRET, same_site="lax")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Total-Count"],
 )
 
-app.include_router(router, prefix="/api/v1")
-app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
-app.include_router(prefs_router, prefix="/api/v1/prefs", tags=["prefs"])
+app.include_router(jobs.router)
+app.include_router(auth.router)
+app.include_router(prefs.router)
 
 
 @app.get("/health")
-def health():
+async def health() -> dict:
     return {"status": "ok"}

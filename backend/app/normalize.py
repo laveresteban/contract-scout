@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from app.config import FX_RATES, HOURS_PER_YEAR, MONTHS_PER_YEAR
+from .config import FX_RATES, HOURS_PER_YEAR, MONTHS_PER_YEAR
 
 
 def _interval_multiplier(interval: str | None) -> float | None:
