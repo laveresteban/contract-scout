@@ -112,6 +112,10 @@ async def list_jobs(
     q: str = Query(None, description="Search term"),
     is_remote: bool = Query(True),
     is_us: bool = Query(True),
+    include_ineligible: bool = Query(
+        False, description="Short-list guardrail: drop the remote/US filters to also "
+        "return matches not confirmed remote or US-eligible."
+    ),
     job_type: str = Query(None),
     employment_type: str = Query(None),
     min_pay: float = Query(None),
@@ -127,6 +131,8 @@ async def list_jobs(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    if include_ineligible:
+        is_remote = is_us = None
     filters = JobFilterRequest(
         query=q, is_remote=is_remote, is_us=is_us, job_type=job_type,
         employment_type=employment_type, min_pay=min_pay, max_pay=max_pay,
@@ -170,6 +176,44 @@ async def count_jobs(
         await db.execute(select(func.count()).select_from(base.order_by(None).subquery()))
     ).scalar_one()
     return {"count": total}
+
+
+@router.get("/jobs/hidden-count")
+async def hidden_count(
+    q: str = Query(None),
+    job_type: str = Query(None),
+    employment_type: str = Query(None),
+    min_pay: float = Query(None),
+    max_pay: float = Query(None),
+    min_yearly: float = Query(None),
+    max_yearly: float = Query(None),
+    pay_interval: str = Query(None),
+    source: str = Query(None),
+    company: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Short-list guardrail: how many query matches the default remote+US filters
+    hide, so the UI can offer to loosen them instead of silently showing a short
+    list. ``shown`` applies the eligibility filters; ``total_matching`` relaxes
+    only those; ``hidden`` is the difference.
+    """
+    common = dict(
+        query=q, job_type=job_type, employment_type=employment_type,
+        min_pay=min_pay, max_pay=max_pay, min_yearly=min_yearly,
+        max_yearly=max_yearly, pay_interval=pay_interval, source=source,
+        company=company,
+    )
+
+    async def _count(**eligibility) -> int:
+        filters = JobFilterRequest(**common, **eligibility)
+        base = apply_filters(select(Job), filters)
+        return (
+            await db.execute(select(func.count()).select_from(base.order_by(None).subquery()))
+        ).scalar_one()
+
+    shown = await _count(is_remote=True, is_us=True)
+    total_matching = await _count(is_remote=None, is_us=None)
+    return {"shown": shown, "hidden": total_matching - shown, "total_matching": total_matching}
 
 
 @router.post("/jobs/filter", response_model=list[JobSchema])

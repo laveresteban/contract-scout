@@ -75,6 +75,24 @@ SAMPLE_JOBS = [
         description="<p>Join our data team. This is a hybrid position; you must be "
         "on-site three days a week in our Austin office. Relocation is available.</p>",
     ),
+    # Matches an "engineer" search but is NOT US-eligible, so the default
+    # remote+US filters hide it — this is what the short-list guardrail surfaces
+    # ("N more hidden") and can reveal on request.
+    Job(
+        id="seed-noneligible-1",
+        title="Backend Engineer",
+        company="Zenith EU",
+        location="Berlin, Germany",
+        site="linkedin",
+        job_url="https://example.com/eu/1",
+        is_remote=True,
+        is_us=False,
+        eligibility="non_us",
+        job_type="contract",
+        date_posted=_days_ago(6),
+        date_scraped=_days_ago(1),
+        description="<p>Remote backend engineering contract, EU-based applicants only.</p>",
+    ),
 ]
 
 

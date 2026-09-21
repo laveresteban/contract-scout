@@ -1705,6 +1705,36 @@ kbd {
   transition: width 0.25s ease;
 }
 
+.guardrail-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-inset);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.guardrail-banner__action {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guardrail-banner__action:hover {
+  border-color: var(--brand);
+}
+
 .job-card {
   cursor: default;
   overflow: hidden;

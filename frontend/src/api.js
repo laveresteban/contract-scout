@@ -64,6 +64,16 @@ export async function listJobs(params) {
   return { jobs, total: Number.isNaN(total) ? jobs.length : total }
 }
 
+// Short-list guardrail: how many query matches the default remote+US filters
+// hide. Params mirror listJobs (minus is_remote/is_us, which the endpoint owns).
+export async function getHiddenCount(params) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') query.append(key, value)
+  })
+  return request(`/jobs/hidden-count?${query.toString()}`)
+}
+
 export async function getJob(id) {
   return request(`/jobs/${encodeURIComponent(id)}`)
 }

@@ -107,3 +107,27 @@ def assert_role_once(title):
         f"Expected exactly one card for '{title}', found {len(matches)}: "
         f"{[_card_fields(c) for c in matches]}"
     )
+
+
+# --- short-list guardrail --------------------------------------------------
+_count_before_reveal = 0
+
+
+@step("The guardrail offers to reveal hidden matches")
+def assert_guardrail_offers():
+    global _count_before_reveal
+    banner = _wait().until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-testid=guardrail-banner]"))
+    )
+    assert "hidden" in banner.text.lower(), f"Unexpected guardrail text: {banner.text!r}"
+    _count_before_reveal = len(_visible_cards())
+
+
+@step("Revealing hidden matches shows more results")
+def reveal_hidden():
+    _driver.find_element(By.CSS_SELECTOR, "[data-testid=guardrail-toggle]").click()
+    _wait().until(lambda d: len(_visible_cards()) > _count_before_reveal)
+    banner = _driver.find_element(By.CSS_SELECTOR, "[data-testid=guardrail-banner]")
+    assert "hide them" in banner.text.lower(), (
+        f"Banner should switch to a restore action, got: {banner.text!r}"
+    )

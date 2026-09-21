@@ -14,3 +14,10 @@ Prerequisites: the backend is running (seeded with `--with-duplicates`, then
 * Search the UI for "Backend Engineer"
 * No two visible job cards are duplicates
 * The role "Senior Backend Engineer" appears exactly once
+
+## Hidden non-eligible matches can be revealed
+
+* Open the Contract Scout app
+* Search the UI for "Backend Engineer"
+* The guardrail offers to reveal hidden matches
+* Revealing hidden matches shows more results

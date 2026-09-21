@@ -11,7 +11,7 @@ import ScrapeHealthPanel from './components/ScrapeHealthPanel'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { usePrefs } from './hooks/usePrefs'
 import { useSavedSearches } from './hooks/useSavedSearches'
-import { getJob, getJobStats, listJobs, listSources, scrapeJobs, verifyJob, verifyJobs } from './api'
+import { getHiddenCount, getJob, getJobStats, listJobs, listSources, scrapeJobs, verifyJob, verifyJobs } from './api'
 import {
   addRecentSearch,
   deserializeFilters,
@@ -52,6 +52,10 @@ function AppContent({ toasts, showToast, onCloseToast }) {
   const [selectedJobError, setSelectedJobError] = useState(null)
   const [viewMode, setViewMode] = useState('all')
   const [hideRisky, setHideRisky] = useState(false)
+  // Short-list guardrail: how many query matches the remote+US filters hide, and
+  // whether the user has opted to include them.
+  const [hiddenCount, setHiddenCount] = useState(0)
+  const [includeIneligible, setIncludeIneligible] = useState(false)
   const [theme, setTheme] = useState(() => loadTheme())
   const [lastVisit] = useState(() => loadLastVisit())
   const [announcement, setAnnouncement] = useState('')
@@ -139,7 +143,11 @@ function AppContent({ toasts, showToast, onCloseToast }) {
     }
   }
 
-  const fetchJobs = async (params, { scrape = false, append = false, shouldAnnounce = true } = {}) => {
+  const fetchJobs = async (
+    params,
+    { scrape = false, append = false, shouldAnnounce = true, includeIneligible: includeOverride } = {},
+  ) => {
+    const includeAll = includeOverride ?? includeIneligible
     const fetchId = ++fetchIdRef.current
 
     if (append) {
@@ -167,6 +175,7 @@ function AppContent({ toasts, showToast, onCloseToast }) {
         location: params.location,
         is_remote: true,
         is_us: true,
+        include_ineligible: includeAll ? true : undefined,
         job_type: params.job_type,
         employment_type: params.employment_type,
         min_yearly: params.min_yearly,
@@ -186,6 +195,23 @@ function AppContent({ toasts, showToast, onCloseToast }) {
       // prevents duplicate-heavy pages from repeatedly being requested.
       setHasMore(currentOffset + fetchedJobs.length < totalCount)
       setOffset(currentOffset + fetchedJobs.length)
+      if (!append && !includeAll) {
+        getHiddenCount({
+          q: params.query,
+          job_type: params.job_type,
+          employment_type: params.employment_type,
+          min_yearly: params.min_yearly,
+          max_yearly: params.max_yearly,
+          source: params.source,
+          company: params.company,
+        })
+          .then((res) => {
+            if (fetchId === fetchIdRef.current) setHiddenCount(res.hidden || 0)
+          })
+          .catch(() => {})
+      } else if (includeAll) {
+        setHiddenCount(0)
+      }
       if (shouldAnnounce) {
         if (fetched.length === 0 && !append) {
           announce('No jobs found for this search')
@@ -212,8 +238,20 @@ function AppContent({ toasts, showToast, onCloseToast }) {
     setInitialParams(params)
     setRecentSearches((prev) => addRecentSearch(prev, params))
     setViewMode('all')
-    await fetchJobs(params, { scrape: true })
+    // A fresh search re-applies the eligibility filters (and re-measures what
+    // they hide) rather than carrying over a prior "show all" opt-in.
+    setIncludeIneligible(false)
+    await fetchJobs(params, { scrape: true, includeIneligible: false })
     await fetchJobStats()
+  }
+
+  // Short-list guardrail: loosen (or restore) the remote+US filters in place.
+  const handleToggleIneligible = () => {
+    const next = !includeIneligible
+    setIncludeIneligible(next)
+    if (lastSearch) {
+      fetchJobs(lastSearch, { scrape: false, includeIneligible: next })
+    }
   }
 
   const handleLoadMore = () => {
@@ -520,6 +558,23 @@ function AppContent({ toasts, showToast, onCloseToast }) {
           </div>
         )}
         {visibleJobs.length > 0 && <PayInsights jobs={visibleJobs} />}
+        {viewMode === 'all' && !loading && (hiddenCount > 0 || includeIneligible) && (
+          <div className="guardrail-banner" role="status" data-testid="guardrail-banner">
+            <span className="guardrail-banner__text">
+              {includeIneligible
+                ? 'Showing roles not confirmed remote or US-eligible.'
+                : `${hiddenCount} more ${hiddenCount === 1 ? 'match is' : 'matches are'} hidden — not confirmed remote or US-eligible.`}
+            </span>
+            <button
+              type="button"
+              className="guardrail-banner__action"
+              onClick={handleToggleIneligible}
+              data-testid="guardrail-toggle"
+            >
+              {includeIneligible ? 'Hide them' : 'Show these too'}
+            </button>
+          </div>
+        )}
         <JobList
           jobs={jobs}
           loading={loading}
