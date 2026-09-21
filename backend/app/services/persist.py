@@ -9,20 +9,16 @@ filters sort on. The verify_* columns are never touched here.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import JOB_STALE_DAYS
+from ..dedup import dedup_key as compute_dedup_key
 from ..models import Job as JobORM
 from ..scraped import Job
-
-_DEDUP_STRIP = re.compile(r"[^a-z0-9 ]+")
-_DEDUP_WS = re.compile(r"\s+")
 
 # Computed/derived Pydantic fields that must not be passed straight to the ORM.
 _COMPUTED_FIELDS = {
@@ -39,23 +35,15 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _normalize_for_dedup(value: str | None) -> str:
-    if not value:
-        return ""
-    text = value.lower()
-    # Drop common company suffixes and location noise so the same role posted on
-    # multiple boards collapses to one key.
-    text = _DEDUP_STRIP.sub(" ", text)
-    text = re.sub(
-        r"\b(inc|llc|ltd|corp|co|group|technologies|technology|solutions|remote)\b", " ", text
-    )
-    return _DEDUP_WS.sub(" ", text).strip()
-
-
 def _dedup_key(job: Job) -> str:
-    """Build a cross-source semantic key from normalized company + title."""
-    base = f"{_normalize_for_dedup(job.company)}|{_normalize_for_dedup(job.title)}"
-    return hashlib.md5(base.encode()).hexdigest()[:20]
+    """Cross-source identity, shared with the scan path via ``app.dedup``."""
+    return compute_dedup_key(
+        company=job.company,
+        title=job.title,
+        location=job.location,
+        url=job.job_url_direct or job.job_url,
+        job_id=job.id,
+    )
 
 
 def _source_urls(existing: str | None, job: Job) -> str:

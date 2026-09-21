@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
+from ..dedup import dedup_key as compute_dedup_key
 from ..models import Job, SavedSearch, SavedSearchMatch
 from . import matcher
 from .scraper import Scraper, get_scraper
@@ -75,7 +76,9 @@ def _ingest_job(session: AsyncSession, existing: Job | None, data: dict) -> Job:
     """Insert a new Job or update an existing one with the scraped fields.
 
     Only keys the scrape provided are written, so we never null out columns the
-    posting didn't include (and never touch verify_* data on a re-scrape).
+    posting didn't include (and never touch verify_* data on a re-scrape). The
+    ``dedup_key`` is (re)computed from ``app.dedup`` so scan rows share identity
+    with ``/search`` rows and cross-source duplicates collapse.
     """
     job = existing or Job(id=str(data["id"]))
     for key, value in data.items():
@@ -84,6 +87,15 @@ def _ingest_job(session: AsyncSession, existing: Job | None, data: dict) -> Job:
         if key in _DATETIME_COLUMNS:
             value = _coerce_dt(value)
         setattr(job, key, value)
+    job.dedup_key = compute_dedup_key(
+        company=job.company,
+        title=job.title,
+        location=job.location,
+        url=job.job_url_direct or job.job_url,
+        job_id=job.id,
+    )
+    job.is_active = True
+    job.last_seen = job.date_scraped or datetime.now(timezone.utc)
     if existing is None:
         session.add(job)
     return job
@@ -115,33 +127,63 @@ async def scan_one(
 
     if hits:
         ids = [str(j["id"]) for j in hits]
-        existing_jobs = {
+        keys = [
+            compute_dedup_key(
+                company=j.get("company"),
+                title=j.get("title"),
+                location=j.get("location"),
+                url=j.get("job_url_direct") or j.get("job_url"),
+                job_id=str(j["id"]),
+            )
+            for j in hits
+        ]
+        # Resolve existing rows by exact id AND by cross-source dedup key, so a
+        # role already stored under a different source's id collapses onto it
+        # instead of inserting a duplicate.
+        existing_by_id = {
             j.id: j
             for j in (await session.execute(select(Job).where(Job.id.in_(ids)))).scalars()
         }
+        existing_by_key = {
+            j.dedup_key: j
+            for j in (
+                await session.execute(
+                    select(Job).where(Job.dedup_key.in_(keys), Job.is_active.is_(True))
+                )
+            ).scalars()
+            if j.dedup_key
+        }
+        # Track the surviving row per key within this batch too (two hits from
+        # different boards in one scan must merge, not both insert).
+        batch: dict[str, Job] = {}
+        # A match already recorded for this search, keyed by the *surviving* job id.
         already = set(
             (
                 await session.execute(
                     select(SavedSearchMatch.job_id).where(
-                        SavedSearchMatch.saved_search_id == search.id,
-                        SavedSearchMatch.job_id.in_(ids),
+                        SavedSearchMatch.saved_search_id == search.id
                     )
                 )
             )
             .scalars()
             .all()
         )
-        for data in hits:
+        for data, key in zip(hits, keys):
             jid = str(data["id"])
-            self_data = {**data, "id": jid}
-            _ingest_job(session, existing_jobs.get(jid), self_data)
-            if jid not in already:
+            existing = batch.get(key) or existing_by_id.get(jid) or existing_by_key.get(key)
+            job = _ingest_job(session, existing, {**data, "id": jid})
+            batch[key] = job
+            survivor_id = job.id
+            if survivor_id not in already:
                 session.add(
                     SavedSearchMatch(
-                        saved_search_id=search.id, job_id=jid, first_seen_at=now, is_new=True
+                        saved_search_id=search.id,
+                        job_id=survivor_id,
+                        first_seen_at=now,
+                        is_new=True,
                     )
                 )
-                already.add(jid)
+                already.add(survivor_id)
                 result.new += 1
 
     search.last_scanned_at = now

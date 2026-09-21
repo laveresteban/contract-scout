@@ -73,7 +73,11 @@ async def test_unknown_search_is_404(client):
 
 
 async def test_scan_now_finds_and_lists_matches(client, use_scraper):
-    use_scraper([_job(id="a"), _job(id="b"), _job(id="x", title="Rust Dev", is_remote=False)])
+    use_scraper([
+        _job(id="a"),
+        _job(id="b", job_url="https://src/j2"),  # distinct posting (distinct URL)
+        _job(id="x", title="Rust Dev", is_remote=False),
+    ])
     created = await _create(client)
 
     scan = await client.post(f"/api/v1/prefs/saved-searches/{created['id']}/scan")

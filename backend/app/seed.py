@@ -7,6 +7,7 @@ the UI: a live page, a 404 (expired), and one that reads remote but isn't.
 """
 
 import asyncio
+import sys
 from datetime import datetime, timedelta, timezone
 
 from .db import SessionLocal, create_all
@@ -26,6 +27,7 @@ SAMPLE_JOBS = [
         site="linkedin",
         job_url="https://example.com/",
         is_remote=True,
+        is_us=True,
         eligibility="explicit_us",
         job_type="contract",
         employment_type="c2c",
@@ -49,6 +51,7 @@ SAMPLE_JOBS = [
         site="indeed",
         job_url="https://httpbin.org/status/404",
         is_remote=True,
+        is_us=True,
         eligibility="remote_us_assumed",
         job_type="contract",
         date_posted=_days_ago(72),
@@ -64,6 +67,7 @@ SAMPLE_JOBS = [
         site="ziprecruiter",
         job_url="https://example.com/",
         is_remote=True,
+        is_us=True,
         eligibility="remote_us_assumed",
         job_type="contract",
         date_posted=_days_ago(9),
@@ -74,14 +78,54 @@ SAMPLE_JOBS = [
 ]
 
 
-async def seed() -> None:
+# Cross-source duplicates of `seed-live-1`: the SAME role scraped by two other
+# boards under different ids and lightly-varied title/company/location. They are
+# inserted raw (no dedup) so the E2E suite can prove the backfill + dedup collapse
+# them to a single active card. Opt-in via `--with-duplicates`.
+DUPLICATE_JOBS = [
+    Job(
+        id="seed-live-1-dup-indeed",
+        title="Senior Backend Engineer - C2C",
+        company="Northwind Labs LLC",
+        location="United States",
+        site="indeed",
+        job_url="https://example.com/indeed/1",
+        is_remote=True,
+        is_us=True,
+        eligibility="explicit_us",
+        job_type="contract",
+        employment_type="c2c",
+        date_posted=_days_ago(4),
+        date_scraped=_days_ago(1),
+        description="<p>Remote senior backend engineer, long-term contract.</p>",
+    ),
+    Job(
+        id="seed-live-1-dup-zip",
+        title="(Remote) Senior Backend Engineer",
+        company="Northwind Labs",
+        location="Remote, US",
+        site="ziprecruiter",
+        job_url="https://example.com/zip/1",
+        is_remote=True,
+        is_us=True,
+        eligibility="explicit_us",
+        job_type="contract",
+        date_posted=_days_ago(3),
+        date_scraped=_days_ago(1),
+        description="<p>Backend engineering contract, fully remote.</p>",
+    ),
+]
+
+
+async def seed(with_duplicates: bool = False) -> None:
     await create_all()
+    rows = SAMPLE_JOBS + (DUPLICATE_JOBS if with_duplicates else [])
     async with SessionLocal() as session:
-        for job in SAMPLE_JOBS:
+        for job in rows:
             await session.merge(job)  # idempotent upsert by primary key
         await session.commit()
-    print(f"Seeded {len(SAMPLE_JOBS)} jobs.")
+    print(f"Seeded {len(rows)} jobs.")
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    asyncio.run(seed(with_duplicates="--with-duplicates" in sys.argv))

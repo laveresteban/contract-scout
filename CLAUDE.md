@@ -159,9 +159,12 @@ npm run lint
 - Redis-backed rate limiter + background/async verification for multi-worker prod.
 - Move the in-process scan/scrape scheduler loops to a real scheduler/queue (arq
   / Celery beat / single leader) so N workers don't each run them.
-- The dual Job-ingest paths (`services/persist.save_jobs` with dedup/merge for
-  `/search`, vs the lighter `scan._ingest_job` upsert for saved-search scans)
-  could be unified so scan results also get cross-source dedup.
+- ~~The dual Job-ingest paths could be unified so scan results also get
+  cross-source dedup.~~ **Done:** both `services/persist.save_jobs` and
+  `scan._ingest_job` now derive `dedup_key` from the shared `app/dedup.py`
+  (mirrors the frontend's `utils/jobs.js` grouping), so a role scraped by either
+  path collapses onto one row. Backfill existing rows with
+  `python -m app.backfill_dedup` (or Alembic `0004_backfill_dedup_keys`).
 - Broaden email-alert delivery (currently only authenticated `user:<id>` saved
   searches resolve to an address; `ip:<addr>` searches advance the watermark
   without sending).

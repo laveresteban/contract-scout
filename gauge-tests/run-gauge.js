@@ -14,7 +14,7 @@ function run(command, args, env = process.env) {
 
 if (!existsSync(python)) {
   run(process.env.PYTHON || "python", ["-m", "venv", ".venv"]);
-  run(python, ["-m", "pip", "install", "getgauge==0.5.1"]);
+  run(python, ["-m", "pip", "install", "getgauge==0.5.1", "selenium==4.25.0"]);
 }
 
 const env = { ...process.env, PATH: `${pythonDir}${delimiter}${process.env.PATH}` };

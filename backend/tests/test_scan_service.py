@@ -75,7 +75,11 @@ async def _count(db, model, *where):
 
 async def test_scan_one_ingests_and_flags_new(db):
     s = await _search(db)
-    res = await scan_service.scan_one(db, s, _make_scraper([_job(id="a"), _job(id="b")]))
+    # Two genuinely distinct roles (different titles) so both are stored; jobs
+    # that share a title+company collapse by design (see test_dedup.py).
+    res = await scan_service.scan_one(
+        db, s, _make_scraper([_job(id="a"), _job(id="b", title="Staff Python Engineer")])
+    )
     await db.commit()
 
     assert (res.scraped, res.matched, res.new, res.ok) == (2, 2, 2, True)
@@ -88,8 +92,10 @@ async def test_scan_one_dedupes_existing_matches(db):
     s = await _search(db)
     await scan_service.scan_one(db, s, _make_scraper([_job(id="a")]))
     await db.commit()
-    # Same job again + one new one.
-    res = await scan_service.scan_one(db, s, _make_scraper([_job(id="a"), _job(id="c")]))
+    # Same job again + one genuinely new (distinct-title) one.
+    res = await scan_service.scan_one(
+        db, s, _make_scraper([_job(id="a"), _job(id="c", title="Staff Python Engineer")])
+    )
     await db.commit()
 
     assert res.new == 1
