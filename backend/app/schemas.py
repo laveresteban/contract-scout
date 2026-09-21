@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -77,6 +78,21 @@ class VerifyBatchOut(BaseModel):
 
 
 # --- Saved searches ---------------------------------------------------------
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_email(value: str | None) -> str | None:
+    """Normalize a delivery address: blank → None; otherwise basic format check."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if not _EMAIL_RE.match(value):
+        raise ValueError("alert_email is not a valid email address")
+    return value
+
+
 class SavedSearchIn(BaseModel):
     """Create payload — matches what the frontend `savedSearchApi.create` sends."""
 
@@ -84,6 +100,9 @@ class SavedSearchIn(BaseModel):
     filters: dict = Field(default_factory=dict)
     alert_enabled: bool = False
     alert_frequency: str = "daily"
+    alert_email: str | None = None
+
+    _norm_email = field_validator("alert_email")(_validate_email)
 
 
 class SavedSearchPatch(BaseModel):
@@ -93,6 +112,9 @@ class SavedSearchPatch(BaseModel):
     filters: dict | None = None
     alert_enabled: bool | None = None
     alert_frequency: str | None = None
+    alert_email: str | None = None
+
+    _norm_email = field_validator("alert_email")(_validate_email)
 
 
 class SavedSearchOut(BaseModel):
@@ -103,6 +125,7 @@ class SavedSearchOut(BaseModel):
     filters: dict = Field(default_factory=dict)
     alert_enabled: bool
     alert_frequency: str
+    alert_email: str | None = None
     last_alerted_at: datetime | None = None
     last_scanned_at: datetime | None = None
     created_at: datetime | None = None

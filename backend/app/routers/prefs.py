@@ -200,6 +200,7 @@ async def create_saved_search(
         filters=payload.filters,
         alert_enabled=payload.alert_enabled,
         alert_frequency=payload.alert_frequency,
+        alert_email=payload.alert_email,
     )
     db.add(search)
     await db.commit()

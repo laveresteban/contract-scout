@@ -67,6 +67,24 @@ async def test_saved_search_crud(client):
     assert (await client.get("/api/v1/prefs/saved-searches")).json() == []
 
 
+async def test_saved_search_alert_email_roundtrips_and_validates(client):
+    created = await _create(client, alert_email="me@example.com")
+    assert created["alert_email"] == "me@example.com"
+
+    # Blank normalizes to null; a malformed address is rejected.
+    cleared = await client.patch(
+        f"/api/v1/prefs/saved-searches/{created['id']}", json={"alert_email": "  "}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["alert_email"] is None
+
+    bad = await client.post(
+        "/api/v1/prefs/saved-searches",
+        json={"name": "x", "filters": {}, "alert_email": "not-an-email"},
+    )
+    assert bad.status_code == 422
+
+
 async def test_unknown_search_is_404(client):
     assert (await client.get("/api/v1/prefs/saved-searches/nope/matches")).status_code == 404
     assert (await client.post("/api/v1/prefs/saved-searches/nope/scan")).status_code == 404

@@ -97,8 +97,16 @@ def _format_jobs(jobs: list[JobORM]) -> str:
     return "\n".join(lines)
 
 
-async def _email_for(db: AsyncSession, user_id: str) -> str | None:
-    """Resolve a saved search's owner identity to an email, if we have one."""
+async def _email_for(db: AsyncSession, search: SavedSearch) -> str | None:
+    """Resolve a saved search to a delivery address, if we have one.
+
+    An explicit ``alert_email`` wins (and is the only way an anonymous ``ip:``
+    search can be reached); otherwise an authenticated ``user:<id>`` search falls
+    back to the account email.
+    """
+    if search.alert_email:
+        return search.alert_email
+    user_id = search.user_id
     if not user_id or not user_id.startswith("user:"):
         return None
     try:
@@ -131,7 +139,7 @@ async def evaluate_alerts(db: AsyncSession) -> int:
         stmt = apply_sort(stmt, filters).limit(50)
         jobs = (await db.execute(stmt)).scalars().all()
 
-        email = await _email_for(db, search.user_id)
+        email = await _email_for(db, search)
         if jobs and email:
             subject = f'Contract Scout: {len(jobs)} new match(es) for "{search.name}"'
             body = (

@@ -71,6 +71,23 @@ function SavedSearchesPanel({ searches, supportsAlerts, onRun, onDelete, onUpdat
                         </option>
                       ))}
                     </select>
+                    {entry.alert_enabled && (
+                      <input
+                        type="email"
+                        className="alert-email"
+                        // Remount when the stored value changes so defaultValue stays in sync.
+                        key={`alert-email-${entry.id}-${entry.alert_email || ''}`}
+                        defaultValue={entry.alert_email || ''}
+                        placeholder="Send to… (defaults to your account email)"
+                        aria-label="Alert email address"
+                        onBlur={(e) => {
+                          const next = e.target.value.trim()
+                          if (next !== (entry.alert_email || '')) {
+                            onUpdate(entry.id, { alert_email: next || null })
+                          }
+                        }}
+                      />
+                    )}
                   </div>
                 )}
                 <button

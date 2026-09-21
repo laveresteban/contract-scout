@@ -169,6 +169,9 @@ class SavedSearch(Base):
     # `alert_enabled` doubles as the background-scan switch for this search.
     alert_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     alert_frequency: Mapped[str] = mapped_column(String, default="daily", server_default="daily")
+    # Optional explicit delivery address. Lets an anonymous (ip:) search receive
+    # email alerts, and overrides the account email for an authenticated one.
+    alert_email: Mapped[str | None] = mapped_column(String)
     last_alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # When the scheduler last ran this search (drives the "due" check).

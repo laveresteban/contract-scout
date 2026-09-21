@@ -1553,6 +1553,13 @@ kbd {
   accent-color: var(--accent);
 }
 
+.alert-email {
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8rem;
+  min-width: 14rem;
+  flex: 1 1 12rem;
+}
+
 .saved-search-hint {
   margin: 0.8rem 0 0;
 }

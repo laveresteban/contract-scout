@@ -13,6 +13,7 @@ function fromServer(row) {
     params: row.filters || {},
     alert_enabled: row.alert_enabled,
     alert_frequency: row.alert_frequency,
+    alert_email: row.alert_email,
     last_alerted_at: row.last_alerted_at,
     server: true,
   }

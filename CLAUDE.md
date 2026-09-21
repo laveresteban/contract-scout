@@ -165,6 +165,10 @@ npm run lint
   (mirrors the frontend's `utils/jobs.js` grouping), so a role scraped by either
   path collapses onto one row. Backfill existing rows with
   `python -m app.backfill_dedup` (or Alembic `0004_backfill_dedup_keys`).
-- Broaden email-alert delivery (currently only authenticated `user:<id>` saved
-  searches resolve to an address; `ip:<addr>` searches advance the watermark
-  without sending).
+- ~~Broaden email-alert delivery beyond authenticated `user:<id>` searches.~~
+  **Partly done:** a saved search can now carry an explicit `alert_email`
+  (`services/alerts._email_for` prefers it, so an `ip:<addr>` search is now
+  deliverable and an authenticated one can override its account email; migration
+  `0005_add_saved_search_alert_email`). Remaining: the SPA still keeps anonymous
+  saved searches in `localStorage` only, so exposing this in the UI for
+  unauthenticated users needs anonymous searches to be server-backed first.
