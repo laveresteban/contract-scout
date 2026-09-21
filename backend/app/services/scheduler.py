@@ -30,12 +30,14 @@ from . import alerts as alert_service
 from . import scan as scan_service
 from . import scraper as scraper_module
 from . import scrape_run
+from . import verify as verify_service
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
 
 _scan_task: asyncio.Task | None = None
 _scrape_task: asyncio.Task | None = None
+_reverify_task: asyncio.Task | None = None
 _next_scrape_at: datetime | None = None
 
 
@@ -141,6 +143,38 @@ def next_run_at() -> datetime | None:
 
 
 # ---------------------------------------------------------------------------
+# Background re-verification loop
+# ---------------------------------------------------------------------------
+async def _reverify_once() -> None:
+    async with SessionLocal() as session:
+        checked = await verify_service.reverify_stale(
+            session,
+            limit=_settings.verify_background_batch,
+            stale_hours=_settings.verify_background_stale_hours,
+        )
+    if checked:
+        logger.info("background re-verification: re-checked %d job(s)", checked)
+
+
+async def _reverify_loop() -> None:
+    interval_seconds = max(60, _settings.verify_background_interval_minutes * 60)
+    logger.info(
+        "background re-verification loop started (every %d min, batch %d, stale > %sh)",
+        _settings.verify_background_interval_minutes,
+        _settings.verify_background_batch,
+        _settings.verify_background_stale_hours,
+    )
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            await _reverify_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # never let one bad tick kill the loop
+            logger.exception("background re-verification tick failed")
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
 def start() -> None:
@@ -162,6 +196,13 @@ def start() -> None:
     else:
         logger.info("Scheduled scraping disabled (SCRAPE_INTERVAL_MINUTES=0).")
 
+    global _reverify_task
+    if _settings.verify_background_enabled:
+        if _reverify_task is None or _reverify_task.done():
+            _reverify_task = asyncio.create_task(_reverify_loop())
+    else:
+        logger.info("Background re-verification disabled (CS_VERIFY_BACKGROUND_ENABLED=false).")
+
 
 async def _cancel(task: asyncio.Task | None) -> None:
     if task is not None:
@@ -173,9 +214,11 @@ async def _cancel(task: asyncio.Task | None) -> None:
 
 
 async def stop() -> None:
-    global _scan_task, _scrape_task, _next_scrape_at
+    global _scan_task, _scrape_task, _reverify_task, _next_scrape_at
     await _cancel(_scan_task)
     await _cancel(_scrape_task)
+    await _cancel(_reverify_task)
     _scan_task = None
     _scrape_task = None
+    _reverify_task = None
     _next_scrape_at = None

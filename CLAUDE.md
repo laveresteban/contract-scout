@@ -156,9 +156,15 @@ npm run lint
 
 ## Likely future work (given the current shape)
 
-- Redis-backed rate limiter + background/async verification for multi-worker prod.
-- Move the in-process scan/scrape scheduler loops to a real scheduler/queue (arq
-  / Celery beat / single leader) so N workers don't each run them.
+- ~~Redis-backed rate limiter + background/async verification for multi-worker
+  prod.~~ **Done:** set `CS_REDIS_URL` to enforce the rate limit across workers
+  via `services/ratelimit.RedisSlidingWindowLimiter` (`build_limiter` falls back
+  in-process when unset). A background loop (`CS_VERIFY_BACKGROUND_*`) re-checks
+  stale/unverified active jobs via `verify.reverify_stale`, also exposed at
+  `POST /jobs/reverify-stale`.
+- Move the in-process scan/scrape/re-verify scheduler loops to a real
+  scheduler/queue (arq / Celery beat / single leader) so N workers don't each
+  run them.
 - ~~The dual Job-ingest paths could be unified so scan results also get
   cross-source dedup.~~ **Done:** both `services/persist.save_jobs` and
   `scan._ingest_job` now derive `dedup_key` from the shared `app/dedup.py`

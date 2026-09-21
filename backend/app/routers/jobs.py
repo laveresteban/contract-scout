@@ -328,6 +328,22 @@ async def run_alerts(db: AsyncSession = Depends(get_db)):
     return {"sent": sent}
 
 
+@router.post("/jobs/reverify-stale")
+async def run_reverify_stale(
+    limit: int = Query(None, ge=1, le=200, description="Override the per-run batch size"),
+    stale_hours: float = Query(None, ge=0, description="Override the staleness threshold"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually run one background-re-verification pass (the loop calls the same
+    service). Re-checks active jobs whose verdict is missing or stale."""
+    checked = await verify_service.reverify_stale(
+        db,
+        limit=limit if limit is not None else _settings.verify_background_batch,
+        stale_hours=stale_hours if stale_hours is not None else _settings.verify_background_stale_hours,
+    )
+    return {"checked": checked}
+
+
 @router.delete("/jobs")
 async def clear_jobs(db: AsyncSession = Depends(get_db)):
     await db.execute(Job.__table__.delete())

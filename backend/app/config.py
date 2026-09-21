@@ -41,9 +41,21 @@ class Settings(BaseSettings):
     verify_batch_concurrency: int = 5       # simultaneous outbound fetches
     verify_user_agent: str = "ContractScoutBot/1.0 (+https://contractscout.example/bot)"
 
+    # --- Background re-verification ----------------------------------------
+    # A per-instance loop re-checks active jobs whose verdict is stale/missing so
+    # the UI trends toward ground truth without a user clicking "Re-check".
+    verify_background_enabled: bool = True
+    verify_background_interval_minutes: int = 30   # how often the loop wakes
+    verify_background_batch: int = 20              # jobs re-checked per tick
+    verify_background_stale_hours: float = 24.0    # re-check once a verdict is older
+
     # Rate limit (per identity): `rate_limit_times` requests per window.
     rate_limit_times: int = 30
     rate_limit_window_seconds: float = 60.0
+    # Optional Redis URL (e.g. redis://localhost:6379/0). When set, rate limiting
+    # uses a shared Redis store so the limit is enforced across all workers;
+    # otherwise it falls back to the in-process limiter (per-worker).
+    redis_url: str | None = None
 
     # --- Saved-search background scan --------------------------------------
     scan_enabled: bool = True                # start the background loop at all

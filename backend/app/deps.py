@@ -15,10 +15,10 @@ from . import config
 from .config import get_settings
 from .db import get_db
 from .models import UserORM
-from .services.ratelimit import SlidingWindowLimiter
+from .services.ratelimit import build_limiter
 
 _settings = get_settings()
-_limiter = SlidingWindowLimiter(_settings.rate_limit_times, _settings.rate_limit_window_seconds)
+_limiter = build_limiter(_settings)
 
 
 def _bearer_token(authorization: str | None) -> str | None:

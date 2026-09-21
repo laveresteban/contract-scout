@@ -6,10 +6,13 @@ verdict everyone benefits from. Key rule: a transient failure is *inconclusive*
 (`unreachable`), never `expired` — we must not bury a live job on a timeout.
 """
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..models import Job, VerifyStatus
@@ -147,3 +150,41 @@ def new_client() -> httpx.AsyncClient:
         follow_redirects=True,
         headers={"User-Agent": _settings.verify_user_agent},
     )
+
+
+async def reverify_stale(
+    db: AsyncSession, *, limit: int, stale_hours: float
+) -> int:
+    """Re-check active jobs whose verdict is missing or older than ``stale_hours``.
+
+    Oldest verdict first (nulls first), capped at ``limit``, with the same bounded
+    concurrency as the batch endpoint. Commits and returns how many were checked.
+    Used by the background re-verification loop so the UI trends toward ground
+    truth without a user clicking "Re-check".
+    """
+    if limit <= 0:
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=stale_hours)
+    stmt = (
+        select(Job)
+        .where(
+            or_(Job.is_active.is_(True), Job.is_active.is_(None)),
+            or_(Job.verify_checked_at.is_(None), Job.verify_checked_at < cutoff),
+        )
+        .order_by(Job.verify_checked_at.asc().nullsfirst())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    if not rows:
+        return 0
+
+    semaphore = asyncio.Semaphore(_settings.verify_batch_concurrency)
+    async with new_client() as client:
+        async def run(job: Job) -> None:
+            async with semaphore:
+                await verify_job(job, client=client)
+
+        await asyncio.gather(*(run(job) for job in rows))
+
+    await db.commit()
+    return len(rows)
